@@ -1,0 +1,7 @@
+# Локальная база и сессия (персональные данные)
+gophkeepston.db
+session.enc
+
+# Бинарники
+gophkeeper
+*.exe

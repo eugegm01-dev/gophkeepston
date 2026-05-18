@@ -2,6 +2,7 @@ package store
 
 import (
 	"fmt"
+	"strings"
 
 	"go.etcd.io/bbolt"
 )
@@ -15,7 +16,6 @@ func NewStore(path string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open bolt: %w", err)
 	}
-	// Создаём бакет для записей, если его нет
 	err = db.Update(func(tx *bbolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists([]byte("entries"))
 		return err
@@ -46,6 +46,28 @@ func (s *Store) Get(userID, entryID string) ([]byte, error) {
 		return nil
 	})
 	return data, err
+}
+
+func (s *Store) List(userID string) ([]string, error) {
+	var ids []string
+	prefix := userID + ":"
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte("entries"))
+		c := b.Cursor()
+		for k, _ := c.Seek([]byte(prefix)); k != nil && strings.HasPrefix(string(k), prefix); k, _ = c.Next() {
+			id := strings.TrimPrefix(string(k), prefix)
+			ids = append(ids, id)
+		}
+		return nil
+	})
+	return ids, err
+}
+
+func (s *Store) Delete(userID, entryID string) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte("entries"))
+		return b.Delete([]byte(userID + ":" + entryID))
+	})
 }
 
 func (s *Store) Close() error {
