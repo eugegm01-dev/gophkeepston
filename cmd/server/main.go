@@ -12,7 +12,7 @@ import (
 )
 
 func main() {
-	db, err := storage.NewPostgresDB("postgres://gophkeepston:secret@localhost:5432/gophkeepston?sslmode=disable")
+	db, err := storage.NewPostgresDB("postgres://gophkeepston:secret@127.0.0.1:5432/gophkeepston?sslmode=disable")
 	if err != nil {
 		log.Fatalf("db: %v", err)
 	}
