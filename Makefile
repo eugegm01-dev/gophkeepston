@@ -11,3 +11,6 @@ run-server:
 
 run-client:
 	go run cmd/client/main.go $(ARGS)
+
+run-tui:
+	go run cmd/tui/main.go
