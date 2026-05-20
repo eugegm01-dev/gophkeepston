@@ -20,6 +20,7 @@ import (
 	"github.com/eugegm01-dev/gophkeepston/internal/client/crypto"
 	"github.com/eugegm01-dev/gophkeepston/internal/client/session"
 	"github.com/eugegm01-dev/gophkeepston/internal/client/store"
+	syncclient "github.com/eugegm01-dev/gophkeepston/internal/client/sync"
 )
 
 // Типы сообщений
@@ -558,14 +559,20 @@ func (m authModel) handleAuth() tea.Cmd {
 			return errMsg{err}
 		}
 
+		// Сохраняем сессию с токенами
 		sessionKey := crypto.DeriveKey([]byte(m.password), []byte("gophkeepston-session-salt"))
-		if err := session.Save(sessionKey, userID, masterKey); err != nil {
+		if err := session.Save(sessionKey, userID, masterKey, resp.AccessToken, resp.RefreshToken); err != nil {
 			return errMsg{err}
 		}
 
+		// Синхронизация с сервером
+		syncclient.FullSync(st, userID, resp.AccessToken, m.server)
+
 		sess := &session.Session{
-			UserID:    userID,
-			MasterKey: masterKey,
+			UserID:       userID,
+			MasterKey:    masterKey,
+			AccessToken:  resp.AccessToken,
+			RefreshToken: resp.RefreshToken,
 		}
 
 		return authSuccessMsg{

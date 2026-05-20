@@ -15,6 +15,7 @@ import (
 	"github.com/eugegm01-dev/gophkeepston/internal/client/crypto"
 	"github.com/eugegm01-dev/gophkeepston/internal/client/session"
 	"github.com/eugegm01-dev/gophkeepston/internal/client/store"
+	syncclient "github.com/eugegm01-dev/gophkeepston/internal/client/sync"
 )
 
 var (
@@ -54,6 +55,11 @@ func requireSession(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("open store: %w", err)
 	}
+	if err := s.EnsureFreshAccess(serverAddr); err != nil {
+		return fmt.Errorf("refresh session: %w", err)
+	}
+	// можно опционально синхронизироваться, но это замедлит команды
+	// syncclient.FullSync(localStore, s.UserID, s.AccessToken, serverAddr)
 	return nil
 }
 
@@ -135,11 +141,14 @@ var loginCmd = &cobra.Command{
 			return fmt.Errorf("open store: %w", err)
 		}
 
-		// Сохраняем сессию для будущих команд
+		// Сохраняем сессию с токенами
 		sessionKey := crypto.DeriveKey(password, []byte("gophkeepston-session-salt"))
-		if err := session.Save(sessionKey, userID, masterKey); err != nil {
+		if err := session.Save(sessionKey, userID, masterKey, resp.AccessToken, resp.RefreshToken); err != nil {
 			return fmt.Errorf("save session: %w", err)
 		}
+
+		// Синхронизируем данные с сервером
+		syncclient.FullSync(localStore, userID, resp.AccessToken, serverAddr)
 
 		fmt.Println("Logged in successfully. Session saved.")
 		return nil
