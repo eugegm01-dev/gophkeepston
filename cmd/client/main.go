@@ -26,10 +26,20 @@ var (
 )
 
 type PasswordEntry struct {
-	Site     string `json:"site"`
-	Login    string `json:"login"`
-	Password string `json:"password"`
-	Meta     string `json:"meta"`
+	Type      string `json:"type"`
+	Site      string `json:"site"`
+	Login     string `json:"login"`
+	Password  string `json:"password"`
+	Meta      string `json:"meta"`
+	IsOTP     bool   `json:"is_otp,omitempty"`
+	OTPSecret string `json:"otp_secret,omitempty"`
+}
+
+type TextEntry struct {
+	Type    string `json:"type"`
+	Title   string `json:"title"`
+	Content string `json:"content"`
+	Meta    string `json:"meta"`
 }
 
 func init() {
@@ -193,6 +203,33 @@ var addCmd = &cobra.Command{
 				return fmt.Errorf("store: %w", err)
 			}
 			fmt.Println("Entry added:", entryID)
+		case "text":
+			fmt.Print("Title: ")
+			var title string
+			fmt.Scanln(&title)
+			fmt.Print("Content: ")
+			var content string
+			fmt.Scanln(&content)
+			fmt.Print("Meta (optional): ")
+			var meta string
+			fmt.Scanln(&meta)
+
+			entry := TextEntry{
+				Type:    "text",
+				Title:   title,
+				Content: content,
+				Meta:    meta,
+			}
+			plain, _ := json.Marshal(entry)
+			ciphertext, err := crypto.Encrypt(plain, masterKey)
+			if err != nil {
+				return fmt.Errorf("encrypt: %w", err)
+			}
+			entryID := fmt.Sprintf("text-%d", time.Now().UnixNano())
+			if err := localStore.Put(userID, entryID, ciphertext); err != nil {
+				return fmt.Errorf("store: %w", err)
+			}
+			fmt.Println("Text entry added:", entryID)
 		default:
 			return fmt.Errorf("unsupported type: %s", typ)
 		}
@@ -215,12 +252,29 @@ var getCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("decrypt: %w", err)
 		}
-		var entry PasswordEntry
-		if err := json.Unmarshal(plain, &entry); err != nil {
-			return fmt.Errorf("unmarshal: %w", err)
+		// Сначала проверяем тип
+		var typeCheck struct{ Type string }
+		if err := json.Unmarshal(plain, &typeCheck); err != nil {
+			return fmt.Errorf("unmarshal type: %w", err)
 		}
-		fmt.Printf("Site: %s\nLogin: %s\nPassword: %s\nMeta: %s\n",
-			entry.Site, entry.Login, entry.Password, entry.Meta)
+		switch typeCheck.Type {
+		case "password":
+			var entry PasswordEntry
+			if err := json.Unmarshal(plain, &entry); err != nil {
+				return fmt.Errorf("unmarshal password: %w", err)
+			}
+			fmt.Printf("Site: %s\nLogin: %s\nPassword: %s\nMeta: %s\n",
+				entry.Site, entry.Login, entry.Password, entry.Meta)
+		case "text":
+			var entry TextEntry
+			if err := json.Unmarshal(plain, &entry); err != nil {
+				return fmt.Errorf("unmarshal text: %w", err)
+			}
+			fmt.Printf("Title: %s\nContent: %s\nMeta: %s\n",
+				entry.Title, entry.Content, entry.Meta)
+		default:
+			fmt.Println("Unknown entry type")
+		}
 		return nil
 	},
 }
