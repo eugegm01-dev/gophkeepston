@@ -23,8 +23,11 @@ func main() {
 		log.Fatalf("db: %v", err)
 	}
 	defer db.Close()
-
-	jwtManager := jwt.NewManager("my-secret-jwt-key")
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		log.Fatal("JWT_SECRET environment variable is required")
+	}
+	jwtManager := jwt.NewManager(jwtSecret)
 
 	authSvc := auth.NewAuthService(db, "my-secret-jwt-key")
 	syncSvc := serversync.NewSyncService(db)

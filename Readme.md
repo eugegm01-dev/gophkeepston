@@ -54,23 +54,37 @@ make run-server
 make run-client ARGS="register"
 ```
 
-Команды Makefile
-Команда	Описание
-make run-server	Запуск gRPC сервера
-make run-tui	Запуск терминального интерфейса
-make run-client ARGS="..."	Запуск CLI с аргументами
-make run-migrations	Выполнить миграции БД
-make gen-proto	Сгенерировать код из .proto файлов
-Документация
+## Команды Makefile
+
+Команда	                     Описание
+make run-server	            Запуск gRPC сервера
+make run-tui	               Запуск терминального интерфейса
+make run-client ARGS="..."	   Запуск CLI с аргументами
+make run-migrations	         Выполнить миграции БД
+make gen-proto	               Сгенерировать код из .proto файлов
+
+## Документация
 
 Swagger UI доступен при запуске сервера по адресу http://localhost:8080/swagger/ (если настроен).
 Godoc комментарии доступны в исходном коде.
-Тестирование
-bash
+
+## Тестирование
+
+```bash
 
 go test ./...
+```
 
-Покрытие: go test -coverprofile=coverage.out ./... && go tool cover -func=coverage.out | grep total
-Лицензия
+Покрытие: 
+
+```bash
+go test -coverprofile=coverage.out ./... && go tool cover -func=coverage.out | grep total
+```
+
+## Безопасность
+- Соли для Argon2 в текущей версии фиксированы. В production соли должны быть уникальными для каждого пользователя.
+- JWT‑секрет задаётся через переменную окружения `JWT_SECRET`.
+
+## Лицензия
 
 Проект учебный, лицензия не требуется.

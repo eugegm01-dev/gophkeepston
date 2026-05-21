@@ -70,12 +70,12 @@ func (s *Session) EnsureFreshAccess(serverAddr string) error {
 		return err
 	}
 	defer client.Close()
-
 	resp, err := client.Refresh(context.Background(), s.RefreshToken)
 	if err != nil {
 		return err
 	}
 	s.AccessToken = resp.AccessToken
+	s.RefreshToken = resp.RefreshToken
 	return nil
 }
 
