@@ -5,6 +5,8 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -92,6 +94,13 @@ type model struct {
 	addForm    *huh.Form
 	addingType string
 	adding     bool
+}
+
+type BinaryEntry struct {
+	Type     string `json:"type"` // "binary"
+	FileName string `json:"file_name"`
+	Data     []byte `json:"data"`
+	Meta     string `json:"meta"`
 }
 
 func NewModel(serverAddr string) *model {
@@ -209,6 +218,23 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.addForm = newCardForm()
 					return m, m.addForm.Init()
 				}
+			case "b":
+				if m.screen == screenChooseType {
+					m.addingType = "binary"
+					m.screen = screenAdd
+					m.adding = true
+					m.addForm = newBinaryForm()
+					return m, m.addForm.Init()
+				}
+			case "s":
+				if m.screen == screenView && m.viewingEntry.entryType == "binary" {
+					var e BinaryEntry
+					if err := json.Unmarshal(m.viewingData, &e); err == nil {
+						outPath := e.FileName
+						os.WriteFile(outPath, e.Data, 0644)
+						m.err = fmt.Errorf("file saved to %s", outPath)
+					}
+				}
 			case "esc":
 				if m.screen == screenChooseType {
 					m.screen = screenList
@@ -248,7 +274,7 @@ func (m *model) View() string {
 	}
 	switch m.screen {
 	case screenAuth:
-		return m.authScreen.View()
+		return renderCastle() + "\n" + m.authScreen.View()
 	case screenList:
 		return docStyle.Render(m.list.View() + "\n" + m.helpView())
 	case screenView:
@@ -259,7 +285,7 @@ func (m *model) View() string {
 		}
 		return "Loading form..."
 	case screenChooseType:
-		return docStyle.Render("Select type:\n\np: password\nt: text\nc: card\n\nesc: back")
+		return docStyle.Render("Select type:\n\np: password\nt: text\nc: card\nb: binary\n\nesc: back")
 	}
 	return ""
 }
@@ -295,6 +321,12 @@ func (m *model) viewEntryView() string {
 		var e TextEntry
 		if err := json.Unmarshal(m.viewingData, &e); err == nil {
 			content = fmt.Sprintf("Title: %s\nContent: %s\nMeta: %s", e.Title, e.Content, e.Meta)
+		}
+	case "binary":
+		var e BinaryEntry
+		if err := json.Unmarshal(m.viewingData, &e); err == nil {
+			content = fmt.Sprintf("File: %s\nSize: %d bytes\nMeta: %s",
+				e.FileName, len(e.Data), e.Meta)
 		}
 	default:
 		content = "Unknown entry type"
@@ -376,6 +408,17 @@ func loadEntriesCmd(m *model) tea.Cmd {
 					entryType: "card",
 					title:     entry.Holder,
 					desc:      entry.Number + " " + entry.Expiry,
+				})
+			case "binary":
+				var entry BinaryEntry
+				if err := json.Unmarshal(plain, &entry); err != nil {
+					continue
+				}
+				items = append(items, item{
+					id:        id,
+					entryType: "binary",
+					title:     entry.FileName,
+					desc:      fmt.Sprintf("%d bytes", len(entry.Data)),
 				})
 			}
 		}
@@ -483,7 +526,34 @@ func saveEntryCmd(m *model) tea.Cmd {
 			if err := m.store.Put(m.session.UserID, entryID, ciphertext); err != nil {
 				return errMsg{err}
 			}
+		case "binary":
+			path := form.GetString("path")
+			meta := form.GetString("meta")
+			if path == "" {
+				return errMsg{fmt.Errorf("file path required")}
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return errMsg{err}
+			}
+			fileName := filepath.Base(path)
+			entry := BinaryEntry{
+				Type:     "binary",
+				FileName: fileName,
+				Data:     data,
+				Meta:     meta,
+			}
+			plain, _ := json.Marshal(entry)
+			ciphertext, err := crypto.Encrypt(plain, m.masterKey)
+			if err != nil {
+				return errMsg{err}
+			}
+			entryID := fmt.Sprintf("binary-%d", time.Now().UnixNano())
+			if err := m.store.Put(m.session.UserID, entryID, ciphertext); err != nil {
+				return errMsg{err}
+			}
 		}
+
 		m.screen = screenList
 		return loadEntriesCmd(m)()
 	}
@@ -785,11 +855,89 @@ func newCardForm() *huh.Form {
 	meta := ""
 	return huh.NewForm(
 		huh.NewGroup(
-			huh.NewInput().Key("number").Title("Card number").Value(&number),
-			huh.NewInput().Key("expiry").Title("Expiry (MM/YY)").Value(&expiry),
-			huh.NewInput().Key("cvv").Title("CVV").EchoMode(huh.EchoModePassword).Value(&cvv),
+			huh.NewInput().
+				Key("number").
+				Title("Card number (16 digits)").
+				Value(&number).
+				Validate(func(s string) error {
+					if len(s) != 16 {
+						return fmt.Errorf("must be 16 digits")
+					}
+					for _, c := range s {
+						if c < '0' || c > '9' {
+							return fmt.Errorf("only digits allowed")
+						}
+					}
+					return nil
+				}),
+			huh.NewInput().
+				Key("expiry").
+				Title("Expiry (MM/YY)").
+				Value(&expiry).
+				Validate(func(s string) error {
+					if len(s) != 5 || s[2] != '/' {
+						return fmt.Errorf("format MM/YY")
+					}
+					// можно добавить проверку месяца и года
+					return nil
+				}),
+			huh.NewInput().
+				Key("cvv").
+				Title("CVV (3 digits)").
+				EchoMode(huh.EchoModePassword).
+				Value(&cvv).
+				Validate(func(s string) error {
+					if len(s) != 3 {
+						return fmt.Errorf("must be 3 digits")
+					}
+					for _, c := range s {
+						if c < '0' || c > '9' {
+							return fmt.Errorf("only digits")
+						}
+					}
+					return nil
+				}),
 			huh.NewInput().Key("holder").Title("Holder name").Value(&holder),
 			huh.NewInput().Key("meta").Title("Meta (optional)").Value(&meta),
 		),
 	).WithTheme(huh.ThemeBase())
+}
+func newBinaryForm() *huh.Form {
+	path := ""
+	meta := ""
+	return huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().Key("path").Title("File path").Value(&path),
+			huh.NewInput().Key("meta").Title("Meta (optional)").Value(&meta),
+		),
+	).WithTheme(huh.ThemeBase())
+}
+
+func renderCastle() string {
+	sky := lipgloss.NewStyle().Background(lipgloss.Color("#1E90FF"))   // синее небо
+	sun := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD700"))   // солнце
+	stone := lipgloss.NewStyle().Foreground(lipgloss.Color("#A0A0A0")) // камень замка
+	roof := lipgloss.NewStyle().Foreground(lipgloss.Color("#FF5555"))  // красная крыша
+	white := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")) // рыцарь
+	grass := lipgloss.NewStyle().Foreground(lipgloss.Color("#228B22")) // трава
+
+	// Пиксельный замок с рыцарем и солнцем
+	scene := sky.Render("                                          \n") +
+		sky.Render("              "+sun.Render(" \\ | / ")+"                \n") +
+		sky.Render("              "+sun.Render("-- O --")+"                \n") +
+		sky.Render("              "+sun.Render(" / | \\ ")+"                \n") +
+		sky.Render("                                          \n") +
+		stone.Render("        ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄        \n") +
+		stone.Render("      ██  ██            ██  ██      \n") +
+		stone.Render("      ██  ██  "+white.Render("■■■■■■")+"  ██  ██      \n") +
+		stone.Render("      ██  ██  "+white.Render("■■■■■■")+"  ██  ██      \n") +
+		stone.Render("      ██  ██            ██  ██      \n") +
+		stone.Render("   ▄▄▄██▄▄██▄▄▄▄▄▄▄▄▄▄██▄▄██▄▄▄   \n") +
+		stone.Render("   ██████████████████████████████   \n") +
+		stone.Render("   ███  ███  ██████████  ███  ███   \n") +
+		roof.Render("   ███  ███  ██████████  ███  ███   \n") +
+		roof.Render("   ███  ███  ██████████  ███  ███   \n") +
+		grass.Render("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n")
+
+	return lipgloss.NewStyle().MaxWidth(60).Render(scene)
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -49,6 +50,12 @@ type CardEntry struct {
 	CVV    string `json:"cvv"`
 	Holder string `json:"holder"`
 	Meta   string `json:"meta"`
+}
+type BinaryEntry struct {
+	Type     string `json:"type"` // "binary"
+	FileName string `json:"file_name"`
+	Data     []byte `json:"data"`
+	Meta     string `json:"meta"`
 }
 
 func init() {
@@ -274,6 +281,35 @@ var addCmd = &cobra.Command{
 				return fmt.Errorf("store: %w", err)
 			}
 			fmt.Println("Card entry added:", entryID)
+		case "binary":
+			fmt.Print("File path: ")
+			var path string
+			fmt.Scanln(&path)
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return fmt.Errorf("read file: %w", err)
+			}
+			fileName := filepath.Base(path)
+			fmt.Print("Meta (optional): ")
+			var meta string
+			fmt.Scanln(&meta)
+
+			entry := BinaryEntry{
+				Type:     "binary",
+				FileName: fileName,
+				Data:     data,
+				Meta:     meta,
+			}
+			plain, _ := json.Marshal(entry)
+			ciphertext, err := crypto.Encrypt(plain, masterKey)
+			if err != nil {
+				return fmt.Errorf("encrypt: %w", err)
+			}
+			entryID := fmt.Sprintf("binary-%d", time.Now().UnixNano())
+			if err := localStore.Put(userID, entryID, ciphertext); err != nil {
+				return fmt.Errorf("store: %w", err)
+			}
+			fmt.Println("Binary entry added:", entryID)
 		default:
 			return fmt.Errorf("unsupported type: %s", typ)
 		}
@@ -323,6 +359,16 @@ var getCmd = &cobra.Command{
 			}
 			fmt.Printf("Number: %s\nExpiry: %s\nCVV: %s\nHolder: %s\nMeta: %s\n",
 				entry.Number, entry.Expiry, entry.CVV, entry.Holder, entry.Meta)
+		case "binary":
+			var entry BinaryEntry
+			if err := json.Unmarshal(plain, &entry); err != nil {
+				return fmt.Errorf("unmarshal binary: %w", err)
+			}
+			outPath := entry.FileName + ".extracted"
+			if err := os.WriteFile(outPath, entry.Data, 0644); err != nil {
+				return fmt.Errorf("write file: %w", err)
+			}
+			fmt.Printf("Binary saved to %s\nMeta: %s\n", outPath, entry.Meta)
 		default:
 			fmt.Println("Unknown entry type")
 		}
