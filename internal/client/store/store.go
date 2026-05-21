@@ -3,6 +3,7 @@
 package store
 
 import (
+	"encoding/binary"
 	"fmt"
 	"strings"
 
@@ -21,12 +22,14 @@ func NewStore(path string) (*Store, error) {
 		return nil, fmt.Errorf("open bolt: %w", err)
 	}
 	err = db.Update(func(tx *bbolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists([]byte("entries"))
-		return err
+		if _, err := tx.CreateBucketIfNotExists([]byte("entries")); err != nil {
+			return err
+		}
+		if _, err := tx.CreateBucketIfNotExists([]byte("versions")); err != nil {
+			return err
+		}
+		return nil
 	})
-	if err != nil {
-		return nil, fmt.Errorf("create bucket: %w", err)
-	}
 	return &Store{db: db}, nil
 }
 
@@ -81,4 +84,70 @@ func (s *Store) Delete(userID, entryID string) error {
 // Close closes the underlying BoltDB database.
 func (s *Store) Close() error {
 	return s.db.Close()
+}
+
+// Версионность
+func (s *Store) PutVersion(userID, entryID string, version int64) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte("versions"))
+		return b.Put([]byte(userID+":"+entryID), int64ToBytes(version))
+	})
+}
+
+func (s *Store) GetVersion(userID, entryID string) (int64, error) {
+	var ver int64
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte("versions"))
+		if b == nil {
+			return fmt.Errorf("versions bucket not found")
+		}
+		data := b.Get([]byte(userID + ":" + entryID))
+		if data == nil {
+			return fmt.Errorf("version not found")
+		}
+		ver = bytesToInt64(data)
+		return nil
+	})
+	return ver, err
+}
+
+func (s *Store) DeleteVersion(userID, entryID string) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte("versions"))
+		if b == nil {
+			return nil
+		}
+		return b.Delete([]byte(userID + ":" + entryID))
+	})
+}
+
+func (s *Store) GetMaxVersion(userID string) (int64, error) {
+	var max int64
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte("versions"))
+		if b == nil {
+			return nil // нет бакета – максимум 0
+		}
+		c := b.Cursor()
+		prefix := []byte(userID + ":")
+		for k, v := c.Seek(prefix); k != nil && strings.HasPrefix(string(k), string(prefix)); k, v = c.Next() {
+			ver := bytesToInt64(v)
+			if ver > max {
+				max = ver
+			}
+		}
+		return nil
+	})
+	return max, err
+}
+
+// Вспомогательные функции для преобразования int64 ↔ []byte
+func int64ToBytes(i int64) []byte {
+	buf := make([]byte, 8)
+	binary.BigEndian.PutUint64(buf, uint64(i))
+	return buf
+}
+
+func bytesToInt64(b []byte) int64 {
+	return int64(binary.BigEndian.Uint64(b))
 }

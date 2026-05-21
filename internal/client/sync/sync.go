@@ -4,7 +4,6 @@ package sync
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -70,64 +69,51 @@ func FullSync(st *store.Store, userID string, token string, serverAddr string) e
 	}
 	defer cli.Close()
 
-	// Получаем максимальную локальную версию (можно хранить в отдельной записи или вычислять)
-	maxLocalVersion := getMaxLocalVersion(st, userID)
-
-	// Pull
-	serverEntries, err := cli.Pull(context.Background(), maxLocalVersion)
+	// 1. Pull: получаем записи с версией больше локальной максимальной
+	maxLocal, err := st.GetMaxVersion(userID)
+	if err != nil {
+		return err
+	}
+	serverEntries, err := cli.Pull(context.Background(), maxLocal)
 	if err != nil {
 		return err
 	}
 	for _, se := range serverEntries {
-		// Если локально нет или версия сервера новее – сохраняем
-		localData, err := st.Get(userID, se.Id)
-		if err != nil || getVersion(localData) < se.Version {
-			st.Put(userID, se.Id, se.EncryptedData)
+		localVer, _ := st.GetVersion(userID, se.Id)
+		if se.Version > localVer {
+			if err := st.Put(userID, se.Id, se.EncryptedData); err != nil {
+				return err
+			}
+			_ = st.PutVersion(userID, se.Id, se.Version)
 		}
 	}
 
-	// Push – отправляем только изменённые локальные записи
-	localIDs, err := st.List(userID)
+	// 2. Push: отправляем все локальные записи с версией > 0 (т.е. все новые/изменённые)
+	ids, err := st.List(userID)
 	if err != nil {
 		return err
 	}
-	for _, id := range localIDs {
+	for _, id := range ids {
+		localVer, err := st.GetVersion(userID, id)
+		if err != nil || localVer == 0 {
+			continue
+		}
 		data, err := st.Get(userID, id)
 		if err != nil {
 			continue
 		}
-		ver := getVersion(data)
-		if ver > maxLocalVersion { // изменилась после последней синхронизации
-			entry := &syncpb.Entry{
-				Id:            id,
-				Type:          "password", // можно извлечь из метаданных
-				EncryptedData: data,
-				Version:       ver,
-				UpdatedAt:     time.Now().Unix(),
-			}
-			cli.Push(context.Background(), []*syncpb.Entry{entry})
+		entry := &syncpb.Entry{
+			Id:            id,
+			Type:          "password",
+			EncryptedData: data,
+			Version:       localVer,
+			UpdatedAt:     time.Now().Unix(),
+		}
+		if err := cli.Push(context.Background(), []*syncpb.Entry{entry}); err != nil {
+			return err
 		}
 	}
 	return nil
-}
-
-func getVersion(data []byte) int64 {
-	var meta struct{ Version int64 }
-	json.Unmarshal(data, &meta) // предполагаем, что в данных есть поле version
-	return meta.Version
-}
-
-func getMaxLocalVersion(st *store.Store, userID string) int64 {
-	ids, _ := st.List(userID)
-	var max int64
-	for _, id := range ids {
-		data, _ := st.Get(userID, id)
-		v := getVersion(data)
-		if v > max {
-			max = v
-		}
-	}
-	return max
 }
 
 // NewClientWithConn creates a sync client using an existing gRPC connection.

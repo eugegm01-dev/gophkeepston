@@ -20,10 +20,11 @@ import (
 )
 
 var (
-	serverAddr string
-	localStore *store.Store
-	userID     string
-	masterKey  []byte
+	serverAddr  string
+	localStore  *store.Store
+	userID      string
+	masterKey   []byte
+	accessToken string
 )
 
 type PasswordEntry struct {
@@ -77,6 +78,7 @@ func requireSession(cmd *cobra.Command, args []string) error {
 	}
 	userID = s.UserID
 	masterKey = s.MasterKey
+	accessToken = s.AccessToken
 	localStore, err = store.NewStore("gophkeepston.db")
 	if err != nil {
 		return fmt.Errorf("open store: %w", err)
@@ -218,7 +220,13 @@ var addCmd = &cobra.Command{
 			if err := localStore.Put(userID, entryID, ciphertext); err != nil {
 				return fmt.Errorf("store: %w", err)
 			}
+			ver := time.Now().UnixNano()
+			_ = localStore.PutVersion(userID, entryID, ver)
+			go func() {
+				_ = syncclient.FullSync(localStore, userID, accessToken, serverAddr)
+			}()
 			fmt.Println("Entry added:", entryID)
+
 		case "text":
 			fmt.Print("Title: ")
 			var title string
@@ -245,7 +253,13 @@ var addCmd = &cobra.Command{
 			if err := localStore.Put(userID, entryID, ciphertext); err != nil {
 				return fmt.Errorf("store: %w", err)
 			}
+			ver := time.Now().UnixNano()
+			_ = localStore.PutVersion(userID, entryID, ver)
+			go func() {
+				_ = syncclient.FullSync(localStore, userID, accessToken, serverAddr)
+			}()
 			fmt.Println("Text entry added:", entryID)
+
 		case "card":
 			fmt.Print("Card number: ")
 			var number string
@@ -280,7 +294,13 @@ var addCmd = &cobra.Command{
 			if err := localStore.Put(userID, entryID, ciphertext); err != nil {
 				return fmt.Errorf("store: %w", err)
 			}
+			ver := time.Now().UnixNano()
+			_ = localStore.PutVersion(userID, entryID, ver)
+			go func() {
+				_ = syncclient.FullSync(localStore, userID, accessToken, serverAddr)
+			}()
 			fmt.Println("Card entry added:", entryID)
+
 		case "binary":
 			fmt.Print("File path: ")
 			var path string
@@ -309,7 +329,13 @@ var addCmd = &cobra.Command{
 			if err := localStore.Put(userID, entryID, ciphertext); err != nil {
 				return fmt.Errorf("store: %w", err)
 			}
+			ver := time.Now().UnixNano()
+			_ = localStore.PutVersion(userID, entryID, ver)
+			go func() {
+				_ = syncclient.FullSync(localStore, userID, accessToken, serverAddr)
+			}()
 			fmt.Println("Binary entry added:", entryID)
+
 		default:
 			return fmt.Errorf("unsupported type: %s", typ)
 		}

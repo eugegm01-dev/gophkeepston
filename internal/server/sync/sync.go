@@ -8,6 +8,7 @@ import (
 	"time"
 
 	syncpb "github.com/eugegm01-dev/gophkeepston/api/proto/sync"
+	"github.com/eugegm01-dev/gophkeepston/internal/server/middleware"
 	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -26,7 +27,7 @@ func NewSyncService(db *sql.DB) *SyncService {
 
 // Push inserts or updates encrypted entries.
 func (s *SyncService) Push(ctx context.Context, req *syncpb.PushRequest) (*syncpb.PushResponse, error) {
-	userID, ok := ctx.Value("user_id").(string)
+	userID, ok := ctx.Value(middleware.UserIDKey).(string)
 	if !ok {
 		return nil, status.Error(codes.Unauthenticated, "user_id not found")
 	}
@@ -52,7 +53,7 @@ func (s *SyncService) Push(ctx context.Context, req *syncpb.PushRequest) (*syncp
 
 // Pull returns entries newer than the given version.
 func (s *SyncService) Pull(ctx context.Context, req *syncpb.PullRequest) (*syncpb.PullResponse, error) {
-	userID, ok := ctx.Value("user_id").(string)
+	userID, ok := ctx.Value(middleware.UserIDKey).(string)
 	if !ok {
 		return nil, status.Error(codes.Unauthenticated, "user_id not found")
 	}

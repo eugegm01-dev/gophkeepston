@@ -16,7 +16,7 @@ func TestUnaryAuthInterceptor(t *testing.T) {
 	interceptor := UnaryAuthInterceptor(mngr)
 
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return ctx.Value("user_id"), nil
+		return ctx.Value(userIDKey), nil
 	}
 
 	// Без метаданных – ошибка

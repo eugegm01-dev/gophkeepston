@@ -200,6 +200,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						if err := m.store.Delete(m.session.UserID, i.id); err != nil {
 							m.err = err
 						} else {
+							_ = m.store.DeleteVersion(m.session.UserID, i.id)
+							go func() {
+								_ = syncclient.FullSync(m.store, m.session.UserID, m.session.AccessToken, m.serverAddr)
+							}()
 							return m, loadEntriesCmd(m)
 						}
 					}
@@ -518,6 +522,8 @@ func saveEntryCmd(m *model) tea.Cmd {
 			if err := m.store.Put(m.session.UserID, entryID, ciphertext); err != nil {
 				return errMsg{err}
 			}
+			ver := time.Now().UnixNano()
+			_ = m.store.PutVersion(m.session.UserID, entryID, ver)
 		case "text":
 			title := form.GetString("title")
 			content := form.GetString("content")
@@ -541,6 +547,8 @@ func saveEntryCmd(m *model) tea.Cmd {
 			if err := m.store.Put(m.session.UserID, entryID, ciphertext); err != nil {
 				return errMsg{err}
 			}
+			ver := time.Now().UnixNano()
+			_ = m.store.PutVersion(m.session.UserID, entryID, ver)
 		case "card":
 			number := form.GetString("number")
 			expiry := form.GetString("expiry")
@@ -568,6 +576,8 @@ func saveEntryCmd(m *model) tea.Cmd {
 			if err := m.store.Put(m.session.UserID, entryID, ciphertext); err != nil {
 				return errMsg{err}
 			}
+			ver := time.Now().UnixNano()
+			_ = m.store.PutVersion(m.session.UserID, entryID, ver)
 		case "binary":
 			path := form.GetString("path")
 			meta := form.GetString("meta")
@@ -594,15 +604,20 @@ func saveEntryCmd(m *model) tea.Cmd {
 			if err := m.store.Put(m.session.UserID, entryID, ciphertext); err != nil {
 				return errMsg{err}
 			}
+			ver := time.Now().UnixNano()
+			_ = m.store.PutVersion(m.session.UserID, entryID, ver)
 
 		}
+
 		go func() {
 			_ = syncclient.FullSync(m.store, m.session.UserID, m.session.AccessToken, m.serverAddr)
 		}()
 
 		m.screen = screenList
 		return loadEntriesCmd(m)()
+
 	}
+
 }
 
 // ===== ПОШАГОВАЯ АУТЕНТИФИКАЦИЯ =====

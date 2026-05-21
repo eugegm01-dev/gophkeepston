@@ -3,6 +3,7 @@ package sync
 import (
 	"context"
 	"net"
+	"os"
 	"testing"
 	"time"
 
@@ -73,18 +74,35 @@ func TestPushAndPull(t *testing.T) {
 	}
 }
 func TestFullSync(t *testing.T) {
-	// Создаём временное хранилище
-	st, err := store.NewStore("test_fullsync.db")
+	// Удаляем старую тестовую базу, чтобы гарантировать чистую среду
+	testDB := "test_fullsync.db"
+	os.Remove(testDB)
+
+	st, err := store.NewStore(testDB)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer st.Close()
+	defer func() {
+		st.Close()
+		os.Remove(testDB)
+	}()
 
 	userID := "alice"
-	// Кладём локальную запись
-	st.Put(userID, "entry1", []byte("data1"))
 
-	// Поднимаем фейковый сервер
+	// Старая запись, которая уже синхронизирована (версия 0)
+	if err := st.Put(userID, "old_entry", []byte("old")); err != nil {
+		t.Fatal(err)
+	}
+	_ = st.PutVersion(userID, "old_entry", 0)
+
+	// Новая запись, которую хотим отправить (версия 201)
+	entryID := "entry1"
+	if err := st.Put(userID, entryID, []byte("data1")); err != nil {
+		t.Fatal(err)
+	}
+	_ = st.PutVersion(userID, entryID, 201)
+
+	// Фейковый сервер
 	lis := bufconn.Listen(1024 * 1024)
 	srv := grpc.NewServer()
 	fake := &fakeSyncServer{}
@@ -101,7 +119,6 @@ func TestFullSync(t *testing.T) {
 	}
 	defer conn.Close()
 
-	// Подменяем NewClientFunc на создание клиента с нашим соединением
 	oldFunc := NewClientFunc
 	NewClientFunc = func(addr, token string) (*Client, error) {
 		return NewClientWithConn(conn, token), nil
@@ -113,7 +130,8 @@ func TestFullSync(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(fake.pushed) != 1 || fake.pushed[0].Id != "entry1" {
-		t.Errorf("push failed: %+v", fake.pushed)
+	// Должна отправиться только запись с версией 201
+	if len(fake.pushed) != 1 || fake.pushed[0].Id != entryID {
+		t.Errorf("expected 1 push with %s, got %d pushes: %+v", entryID, len(fake.pushed), fake.pushed)
 	}
 }
