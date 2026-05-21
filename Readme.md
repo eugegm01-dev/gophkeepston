@@ -74,16 +74,3 @@ go test ./...
 Лицензия
 
 Проект учебный, лицензия не требуется.
-text
-
-
----
-
-### 🚀 Коммит и пуш
-
-После добавления комментариев и README.md:
-
-```bash
-git add -A
-git commit -m "добавлены godoc-комментарии и README.md"
-git push origin feature/docs-and-polish
