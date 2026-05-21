@@ -82,3 +82,15 @@ func (s *SyncService) Pull(ctx context.Context, req *syncpb.PullRequest) (*syncp
 
 	return &syncpb.PullResponse{Entries: entries}, nil
 }
+func (s *SyncService) Delete(ctx context.Context, req *syncpb.DeleteRequest) (*syncpb.DeleteResponse, error) {
+	userID, ok := ctx.Value(middleware.UserIDKey).(string)
+	if !ok {
+		return nil, status.Error(codes.Unauthenticated, "user_id not found")
+	}
+	_, err := s.db.Exec(`DELETE FROM entries WHERE user_id = $1 AND entry_id = $2 AND version < $3`,
+		userID, req.EntryId, req.Version)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "delete entry: %v", err)
+	}
+	return &syncpb.DeleteResponse{}, nil
+}

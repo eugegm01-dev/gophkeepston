@@ -61,6 +61,8 @@ type BinaryEntry struct {
 
 func init() {
 	rootCmd.PersistentFlags().StringVar(&serverAddr, "server", "localhost:50051", "gRPC server address")
+	rootCmd.Version = "1.0.0"
+	rootCmd.SetVersionTemplate("Gophkeepston v{{.Version}}\n")
 }
 
 func requireSession(cmd *cobra.Command, args []string) error {
@@ -86,8 +88,8 @@ func requireSession(cmd *cobra.Command, args []string) error {
 	if err := s.EnsureFreshAccess(serverAddr); err != nil {
 		return fmt.Errorf("refresh session: %w", err)
 	}
-	// можно опционально синхронизироваться, но это замедлит команды
-	// syncclient.FullSync(localStore, s.UserID, s.AccessToken, serverAddr)
+	// синхронизация
+	syncclient.FullSync(localStore, s.UserID, s.AccessToken, serverAddr)
 	return nil
 }
 

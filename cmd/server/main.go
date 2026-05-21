@@ -3,6 +3,9 @@ package main
 import (
 	"log"
 	"net"
+	"os"
+	"os/signal"
+	"syscall"
 
 	authpb "github.com/eugegm01-dev/gophkeepston/api/proto/auth"
 	syncpb "github.com/eugegm01-dev/gophkeepston/api/proto/sync"
@@ -39,6 +42,13 @@ func main() {
 	syncpb.RegisterSyncServer(grpcServer, syncSvc)
 
 	log.Println("gRPC server listening on :50051")
+	go func() {
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+		<-sigCh
+		log.Println("Shutting down gracefully...")
+		grpcServer.GracefulStop()
+	}()
 	if err := grpcServer.Serve(lis); err != nil {
 		log.Fatalf("serve: %v", err)
 	}

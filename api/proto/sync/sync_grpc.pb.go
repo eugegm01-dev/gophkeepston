@@ -19,8 +19,9 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	Sync_Push_FullMethodName = "/gophkeeper.sync.Sync/Push"
-	Sync_Pull_FullMethodName = "/gophkeeper.sync.Sync/Pull"
+	Sync_Push_FullMethodName   = "/gophkeeper.sync.Sync/Push"
+	Sync_Pull_FullMethodName   = "/gophkeeper.sync.Sync/Pull"
+	Sync_Delete_FullMethodName = "/gophkeeper.sync.Sync/Delete"
 )
 
 // SyncClient is the client API for Sync service.
@@ -29,6 +30,7 @@ const (
 type SyncClient interface {
 	Push(ctx context.Context, in *PushRequest, opts ...grpc.CallOption) (*PushResponse, error)
 	Pull(ctx context.Context, in *PullRequest, opts ...grpc.CallOption) (*PullResponse, error)
+	Delete(ctx context.Context, in *DeleteRequest, opts ...grpc.CallOption) (*DeleteResponse, error)
 }
 
 type syncClient struct {
@@ -59,12 +61,23 @@ func (c *syncClient) Pull(ctx context.Context, in *PullRequest, opts ...grpc.Cal
 	return out, nil
 }
 
+func (c *syncClient) Delete(ctx context.Context, in *DeleteRequest, opts ...grpc.CallOption) (*DeleteResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteResponse)
+	err := c.cc.Invoke(ctx, Sync_Delete_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // SyncServer is the server API for Sync service.
 // All implementations must embed UnimplementedSyncServer
 // for forward compatibility.
 type SyncServer interface {
 	Push(context.Context, *PushRequest) (*PushResponse, error)
 	Pull(context.Context, *PullRequest) (*PullResponse, error)
+	Delete(context.Context, *DeleteRequest) (*DeleteResponse, error)
 	mustEmbedUnimplementedSyncServer()
 }
 
@@ -80,6 +93,9 @@ func (UnimplementedSyncServer) Push(context.Context, *PushRequest) (*PushRespons
 }
 func (UnimplementedSyncServer) Pull(context.Context, *PullRequest) (*PullResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Pull not implemented")
+}
+func (UnimplementedSyncServer) Delete(context.Context, *DeleteRequest) (*DeleteResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Delete not implemented")
 }
 func (UnimplementedSyncServer) mustEmbedUnimplementedSyncServer() {}
 func (UnimplementedSyncServer) testEmbeddedByValue()              {}
@@ -138,6 +154,24 @@ func _Sync_Pull_Handler(srv interface{}, ctx context.Context, dec func(interface
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Sync_Delete_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SyncServer).Delete(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Sync_Delete_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SyncServer).Delete(ctx, req.(*DeleteRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Sync_ServiceDesc is the grpc.ServiceDesc for Sync service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -152,6 +186,10 @@ var Sync_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Pull",
 			Handler:    _Sync_Pull_Handler,
+		},
+		{
+			MethodName: "Delete",
+			Handler:    _Sync_Delete_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

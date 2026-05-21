@@ -33,6 +33,8 @@ type authSuccessMsg struct {
 	store     *store.Store
 }
 
+type syncCompletedMsg struct{}
+
 type errMsg struct{ err error }
 
 type entriesLoadedMsg struct {
@@ -197,15 +199,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "d":
 				if m.screen == screenList {
 					if i, ok := m.list.SelectedItem().(item); ok {
-						if err := m.store.Delete(m.session.UserID, i.id); err != nil {
-							m.err = err
-						} else {
-							_ = m.store.DeleteVersion(m.session.UserID, i.id)
-							go func() {
-								_ = syncclient.FullSync(m.store, m.session.UserID, m.session.AccessToken, m.serverAddr)
-							}()
-							return m, loadEntriesCmd(m)
-						}
+						_ = m.store.PutVersion(m.session.UserID, i.id, -1)
+						go func() {
+							_ = syncclient.FullSync(m.store, m.session.UserID, m.session.AccessToken, m.serverAddr)
+						}()
+						return m, loadEntriesCmd(m)
 					}
 				}
 			case "enter":
@@ -395,6 +393,7 @@ func loadEntriesCmd(m *model) tea.Cmd {
 		if err != nil {
 			return errMsg{err}
 		}
+
 		var items []list.Item
 		for _, id := range ids {
 			ciphertext, err := m.store.Get(m.session.UserID, id)
@@ -410,6 +409,10 @@ func loadEntriesCmd(m *model) tea.Cmd {
 				Type string `json:"type"`
 			}
 			if err := json.Unmarshal(plain, &typeCheck); err != nil {
+				continue
+			}
+			ver, _ := m.store.GetVersion(m.session.UserID, id)
+			if ver == -1 {
 				continue
 			}
 
@@ -608,16 +611,18 @@ func saveEntryCmd(m *model) tea.Cmd {
 			_ = m.store.PutVersion(m.session.UserID, entryID, ver)
 
 		}
-
-		go func() {
-			_ = syncclient.FullSync(m.store, m.session.UserID, m.session.AccessToken, m.serverAddr)
-		}()
-
-		m.screen = screenList
-		return loadEntriesCmd(m)()
-
+		m.spinner, _ = m.spinner.Update(spinner.TickMsg{})
+		return tea.Batch(
+			func() tea.Msg {
+				_ = syncclient.FullSync(m.store, m.session.UserID, m.session.AccessToken, m.serverAddr)
+				return syncCompletedMsg{}
+			},
+			func() tea.Msg {
+				m.screen = screenList
+				return loadEntriesCmd(m)
+			},
+		)
 	}
-
 }
 
 // ===== ПОШАГОВАЯ АУТЕНТИФИКАЦИЯ =====

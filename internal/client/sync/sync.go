@@ -113,6 +113,15 @@ func FullSync(st *store.Store, userID string, token string, serverAddr string) e
 			return err
 		}
 	}
+	// Удаление записей, которые помечены как удалённые локально (версия = -1)
+	for _, id := range ids {
+		ver, _ := st.GetVersion(userID, id)
+		if ver == -1 {
+			cli.Delete(context.Background(), id, ver)
+			st.Delete(userID, id)
+			st.DeleteVersion(userID, id)
+		}
+	}
 	return nil
 }
 
@@ -123,4 +132,10 @@ func NewClientWithConn(conn *grpc.ClientConn, token string) *Client {
 		sync:  syncpb.NewSyncClient(conn),
 		token: token,
 	}
+}
+func (c *Client) Delete(ctx context.Context, entryID string, version int64) error {
+	md := metadata.Pairs("authorization", "Bearer "+c.token)
+	ctx = metadata.NewOutgoingContext(ctx, md)
+	_, err := c.sync.Delete(ctx, &syncpb.DeleteRequest{EntryId: entryID, Version: version})
+	return err
 }
