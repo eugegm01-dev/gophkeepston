@@ -404,8 +404,40 @@ var getCmd = &cobra.Command{
 	},
 }
 
+var listCmd = &cobra.Command{
+	Use:     "list",
+	Short:   "List all entry IDs",
+	PreRunE: requireSession,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		ids, err := localStore.List(userID)
+		if err != nil {
+			return err
+		}
+		for _, id := range ids {
+			fmt.Println(id)
+		}
+		return nil
+	},
+}
+
+var deleteCmd = &cobra.Command{
+	Use:     "delete [entryID]",
+	Short:   "Delete an entry",
+	Args:    cobra.ExactArgs(1),
+	PreRunE: requireSession,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		entryID := args[0]
+		_ = localStore.PutVersion(userID, entryID, -1)
+		go func() {
+			_ = syncclient.FullSync(localStore, userID, accessToken, serverAddr)
+		}()
+		fmt.Printf("Marked %s for deletion\n", entryID)
+		return nil
+	},
+}
+
 func main() {
-	rootCmd.AddCommand(registerCmd, loginCmd, addCmd, getCmd)
+	rootCmd.AddCommand(registerCmd, loginCmd, addCmd, getCmd, listCmd, deleteCmd)
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}

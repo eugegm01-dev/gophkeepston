@@ -80,6 +80,12 @@ func (s *AuthService) RefreshToken(ctx context.Context, req *authpb.RefreshToken
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "generate access: %v", err)
 	}
-
+	// Удаляем старый refresh-токен
+	_, _ = s.db.Exec(`DELETE FROM refresh_tokens WHERE token = $1`, req.RefreshToken)
+	// Генерируем новый refresh
+	newRefresh, _ := s.jwtManager.GenerateRefreshToken(userID)
+	_, _ = s.db.Exec(`INSERT INTO refresh_tokens (id, user_id, token, expires_at) VALUES ($1, $2, $3, $4)`,
+		uuid.New().String(), userID, newRefresh, time.Now().Add(72*time.Hour))
+	// Возвращаем новый access и новый refresh
 	return &authpb.RefreshTokenResponse{AccessToken: access}, nil
 }

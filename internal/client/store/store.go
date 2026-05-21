@@ -6,12 +6,14 @@ import (
 	"encoding/binary"
 	"fmt"
 	"strings"
+	"sync"
 
 	"go.etcd.io/bbolt"
 )
 
 // Store is a local BoltDB-backed store for encrypted entries.
 type Store struct {
+	mu sync.Mutex
 	db *bbolt.DB
 }
 
@@ -35,6 +37,8 @@ func NewStore(path string) (*Store, error) {
 
 // Put saves an encrypted entry under the user's namespace.
 func (s *Store) Put(userID, entryID string, encryptedData []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte("entries"))
 		return b.Put([]byte(userID+":"+entryID), encryptedData)
@@ -43,6 +47,8 @@ func (s *Store) Put(userID, entryID string, encryptedData []byte) error {
 
 // Get retrieves an encrypted entry by user and entry ID.
 func (s *Store) Get(userID, entryID string) ([]byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	var data []byte
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte("entries"))
@@ -59,6 +65,8 @@ func (s *Store) Get(userID, entryID string) ([]byte, error) {
 
 // List returns all entry IDs for a given user.
 func (s *Store) List(userID string) ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	var ids []string
 	prefix := userID + ":"
 	err := s.db.View(func(tx *bbolt.Tx) error {
@@ -75,6 +83,8 @@ func (s *Store) List(userID string) ([]string, error) {
 
 // Delete removes an entry from the store.
 func (s *Store) Delete(userID, entryID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte("entries"))
 		return b.Delete([]byte(userID + ":" + entryID))
@@ -88,6 +98,8 @@ func (s *Store) Close() error {
 
 // Версионность
 func (s *Store) PutVersion(userID, entryID string, version int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte("versions"))
 		return b.Put([]byte(userID+":"+entryID), int64ToBytes(version))
@@ -95,6 +107,8 @@ func (s *Store) PutVersion(userID, entryID string, version int64) error {
 }
 
 func (s *Store) GetVersion(userID, entryID string) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	var ver int64
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte("versions"))
@@ -112,6 +126,8 @@ func (s *Store) GetVersion(userID, entryID string) (int64, error) {
 }
 
 func (s *Store) DeleteVersion(userID, entryID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte("versions"))
 		if b == nil {
@@ -122,6 +138,8 @@ func (s *Store) DeleteVersion(userID, entryID string) error {
 }
 
 func (s *Store) GetMaxVersion(userID string) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	var max int64
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte("versions"))

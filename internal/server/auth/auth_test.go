@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -52,5 +53,40 @@ func TestRegisterAndLogin(t *testing.T) {
 	// Проверяем, что все ожидания выполнены
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unfulfilled expectations: %v", err)
+	}
+}
+func TestRefreshToken(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	s := NewAuthService(db, "test-secret")
+
+	// Успешный запрос
+	mock.ExpectQuery(`SELECT user_id FROM refresh_tokens WHERE token = \$1 AND expires_at > now\(\)`).
+		WithArgs("valid_refresh").
+		WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow("user42"))
+
+	resp, err := s.RefreshToken(context.Background(), &authpb.RefreshTokenRequest{RefreshToken: "valid_refresh"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.AccessToken == "" {
+		t.Error("expected access token")
+	}
+
+	// Невалидный токен
+	mock.ExpectQuery(`SELECT user_id FROM refresh_tokens`).
+		WithArgs("bad").
+		WillReturnError(sql.ErrNoRows)
+
+	_, err = s.RefreshToken(context.Background(), &authpb.RefreshTokenRequest{RefreshToken: "bad"})
+	if err == nil {
+		t.Error("expected error for invalid token")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled: %v", err)
 	}
 }
