@@ -1,3 +1,5 @@
+// Package sync implements the gRPC Sync service (Push/Pull).
+// It stores encrypted entries in PostgreSQL and uses Lamport versions for conflict resolution.
 package sync
 
 import (
@@ -11,15 +13,18 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// SyncService implements the Sync gRPC server.
 type SyncService struct {
 	syncpb.UnimplementedSyncServer
 	db *sql.DB
 }
 
+// NewSyncService creates a SyncService with a database connection.
 func NewSyncService(db *sql.DB) *SyncService {
 	return &SyncService{db: db}
 }
 
+// Push inserts or updates encrypted entries.
 func (s *SyncService) Push(ctx context.Context, req *syncpb.PushRequest) (*syncpb.PushResponse, error) {
 	userID, ok := ctx.Value("user_id").(string)
 	if !ok {
@@ -45,6 +50,7 @@ func (s *SyncService) Push(ctx context.Context, req *syncpb.PushRequest) (*syncp
 	return &syncpb.PushResponse{}, nil
 }
 
+// Pull returns entries newer than the given version.
 func (s *SyncService) Pull(ctx context.Context, req *syncpb.PullRequest) (*syncpb.PullResponse, error) {
 	userID, ok := ctx.Value("user_id").(string)
 	if !ok {

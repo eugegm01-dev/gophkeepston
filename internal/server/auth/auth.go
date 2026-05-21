@@ -1,3 +1,5 @@
+// Package auth implements the gRPC Auth service (Register/Login/RefreshToken).
+// It uses PostgreSQL for user storage and JWT for token generation.
 package auth
 
 import (
@@ -11,12 +13,14 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// AuthService implements the Auth gRPC server.
 type AuthService struct {
 	authpb.UnimplementedAuthServer
 	db         *sql.DB
 	jwtManager *jwt.Manager
 }
 
+// NewAuthService creates an AuthService with a database connection and JWT secret.
 func NewAuthService(db *sql.DB, jwtSecret string) *AuthService {
 	return &AuthService{
 		db:         db,
@@ -24,6 +28,7 @@ func NewAuthService(db *sql.DB, jwtSecret string) *AuthService {
 	}
 }
 
+// Register registers a new user.
 func (s *AuthService) Register(ctx context.Context, req *authpb.RegisterRequest) (*authpb.RegisterResponse, error) {
 	id := uuid.New().String()
 	_, err := s.db.Exec("INSERT INTO users (id, login, encrypted_secret) VALUES ($1, $2, $3)",
@@ -34,6 +39,7 @@ func (s *AuthService) Register(ctx context.Context, req *authpb.RegisterRequest)
 	return &authpb.RegisterResponse{UserId: id}, nil
 }
 
+// Login authenticates a user and returns tokens.
 func (s *AuthService) Login(ctx context.Context, req *authpb.LoginRequest) (*authpb.LoginResponse, error) {
 	var userID string
 	var encSecret []byte

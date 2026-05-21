@@ -16,6 +16,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/term"
 	"github.com/pquerna/otp/totp"
 
 	"github.com/eugegm01-dev/gophkeepston/internal/client/authclient"
@@ -47,10 +48,27 @@ var (
 			Padding(0, 1)
 
 	infoStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#626262")).
+			Foreground(lipgloss.Color("#888888")).
 			Italic(true)
 
-	docStyle = lipgloss.NewStyle().Margin(1, 2)
+	// Основной стиль dungeon – тёмный фон с каменной рамкой
+	dungeonStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#555555")).
+			Background(lipgloss.Color("#1a1a2e")).
+			Foreground(lipgloss.Color("#c0c0c0")).
+			Padding(1, 2)
+
+	// Заголовок внутри dungeon
+	headerStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#FFD700")).
+			Background(lipgloss.Color("#333333")).
+			Padding(0, 2)
+
+	torch  = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFA500"))
+	stone  = lipgloss.NewStyle().Foreground(lipgloss.Color("#808080"))
+	shadow = lipgloss.NewStyle().Foreground(lipgloss.Color("#333333"))
 )
 
 type screen int
@@ -126,7 +144,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		if m.list.Items() != nil {
-			m.list.SetSize(msg.Width-5, msg.Height-10)
+			m.list.SetSize(msg.Width-8, msg.Height-14)
 		}
 		return m, nil
 
@@ -149,8 +167,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case entriesLoadedMsg:
 		items := make([]list.Item, len(msg.entries))
 		copy(items, msg.entries)
-		m.list = list.New(items, list.NewDefaultDelegate(), m.width-5, m.height-10)
-		m.list.Title = "Entries"
+		m.list = list.New(items, list.NewDefaultDelegate(), m.width-8, m.height-14)
+		m.list.Title = ""
 		return m, nil
 
 	case []byte:
@@ -272,20 +290,45 @@ func (m *model) View() string {
 	if m.err != nil {
 		return errorStyle.Render(fmt.Sprintf("Error: %v", m.err)) + "\n\nPress esc to go back."
 	}
+
 	switch m.screen {
 	case screenAuth:
 		return renderCastle() + "\n" + m.authScreen.View()
 	case screenList:
-		return docStyle.Render(m.list.View() + "\n" + m.helpView())
+		header := headerStyle.Render(" Vault ")
+		help := m.helpView()
+		content := lipgloss.JoinVertical(lipgloss.Left,
+			header,
+			m.list.View(),
+			help,
+		)
+		return dungeonStyle.
+			Width(m.width - 4).Height(m.height - 4).
+			Render(content)
 	case screenView:
-		return m.viewEntryView()
+		header := headerStyle.Render(" Scroll ")
+		body := m.viewEntryView()
+		help := infoStyle.Render("esc: back")
+		content := lipgloss.JoinVertical(lipgloss.Left, header, body, help)
+		return dungeonStyle.
+			Width(m.width - 4).Height(m.height - 4).
+			Render(content)
 	case screenAdd:
 		if m.addForm != nil {
-			return m.addForm.View()
+			header := headerStyle.Render(" Add Entry ")
+			content := lipgloss.JoinVertical(lipgloss.Left, header, m.addForm.View())
+			return dungeonStyle.
+				Width(m.width - 4).Height(m.height - 4).
+				Render(content)
 		}
 		return "Loading form..."
 	case screenChooseType:
-		return docStyle.Render("Select type:\n\np: password\nt: text\nc: card\nb: binary\n\nesc: back")
+		header := headerStyle.Render(" Choose Type ")
+		body := "p: password\nt: text\nc: card\nb: binary\n\nesc: back"
+		content := lipgloss.JoinVertical(lipgloss.Left, header, body)
+		return dungeonStyle.
+			Width(m.width - 4).Height(m.height - 4).
+			Render(content)
 	}
 	return ""
 }
@@ -322,6 +365,12 @@ func (m *model) viewEntryView() string {
 		if err := json.Unmarshal(m.viewingData, &e); err == nil {
 			content = fmt.Sprintf("Title: %s\nContent: %s\nMeta: %s", e.Title, e.Content, e.Meta)
 		}
+	case "card":
+		var e CardEntry
+		if err := json.Unmarshal(m.viewingData, &e); err == nil {
+			content = fmt.Sprintf("Number: %s\nExpiry: %s\nCVV: %s\nHolder: %s\nMeta: %s",
+				e.Number, e.Expiry, e.CVV, e.Holder, e.Meta)
+		}
 	case "binary":
 		var e BinaryEntry
 		if err := json.Unmarshal(m.viewingData, &e); err == nil {
@@ -331,17 +380,10 @@ func (m *model) viewEntryView() string {
 	default:
 		content = "Unknown entry type"
 	}
-	return docStyle.Render(content + "\n\n" + infoStyle.Render("esc: back"))
+	return content
 }
 
 // ===== КОМАНДЫ =====
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
 
 func loadEntriesCmd(m *model) tea.Cmd {
 	return func() tea.Msg {
@@ -699,21 +741,21 @@ func (m authModel) View() string {
 		if m.err != nil {
 			s = errorStyle.Render(fmt.Sprintf("Error: %v", m.err)) + "\n\n" + s
 		}
-		return docStyle.Render(s)
+		return s
 	case stepEnterLogin:
 		s := "Enter login:\n\n" + m.loginInput.View()
 		s += "\n\nenter: next  esc: back"
 		if m.err != nil {
 			s = errorStyle.Render(fmt.Sprintf("Error: %v", m.err)) + "\n\n" + s
 		}
-		return docStyle.Render(s)
+		return s
 	case stepEnterPassword:
 		s := "Enter master password:\n\n" + m.passwordInput.View()
 		s += "\n\nenter: login  esc: back"
 		if m.err != nil {
 			s = errorStyle.Render(fmt.Sprintf("Error: %v", m.err)) + "\n\n" + s
 		}
-		return docStyle.Render(s)
+		return s
 	case stepAuthenticating:
 		return "Authenticating..."
 	}
@@ -878,7 +920,6 @@ func newCardForm() *huh.Form {
 					if len(s) != 5 || s[2] != '/' {
 						return fmt.Errorf("format MM/YY")
 					}
-					// можно добавить проверку месяца и года
 					return nil
 				}),
 			huh.NewInput().
@@ -902,6 +943,7 @@ func newCardForm() *huh.Form {
 		),
 	).WithTheme(huh.ThemeBase())
 }
+
 func newBinaryForm() *huh.Form {
 	path := ""
 	meta := ""
@@ -914,30 +956,40 @@ func newBinaryForm() *huh.Form {
 }
 
 func renderCastle() string {
-	sky := lipgloss.NewStyle().Background(lipgloss.Color("#1E90FF"))   // синее небо
-	sun := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD700"))   // солнце
-	stone := lipgloss.NewStyle().Foreground(lipgloss.Color("#A0A0A0")) // камень замка
-	roof := lipgloss.NewStyle().Foreground(lipgloss.Color("#FF5555"))  // красная крыша
-	white := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")) // рыцарь
-	grass := lipgloss.NewStyle().Foreground(lipgloss.Color("#228B22")) // трава
+	sky := lipgloss.NewStyle().Background(lipgloss.Color("#1E90FF"))
+	sun := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD700"))
+	stone := lipgloss.NewStyle().Foreground(lipgloss.Color("#808080"))
+	dragon := lipgloss.NewStyle().Foreground(lipgloss.Color("#FF5555"))
+	knight := lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00"))
+	gold := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD700"))
+	grass := lipgloss.NewStyle().Foreground(lipgloss.Color("#228B22"))
 
-	// Пиксельный замок с рыцарем и солнцем
-	scene := sky.Render("                                          \n") +
-		sky.Render("              "+sun.Render(" \\ | / ")+"                \n") +
-		sky.Render("              "+sun.Render("-- O --")+"                \n") +
-		sky.Render("              "+sun.Render(" / | \\ ")+"                \n") +
-		sky.Render("                                          \n") +
-		stone.Render("        ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄        \n") +
-		stone.Render("      ██  ██            ██  ██      \n") +
-		stone.Render("      ██  ██  "+white.Render("■■■■■■")+"  ██  ██      \n") +
-		stone.Render("      ██  ██  "+white.Render("■■■■■■")+"  ██  ██      \n") +
-		stone.Render("      ██  ██            ██  ██      \n") +
-		stone.Render("   ▄▄▄██▄▄██▄▄▄▄▄▄▄▄▄▄██▄▄██▄▄▄   \n") +
-		stone.Render("   ██████████████████████████████   \n") +
-		stone.Render("   ███  ███  ██████████  ███  ███   \n") +
-		roof.Render("   ███  ███  ██████████  ███  ███   \n") +
-		roof.Render("   ███  ███  ██████████  ███  ███   \n") +
-		grass.Render("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n")
+	// Ширина замка 80 символов, адаптируем под любой терминал
+	width := 80
+	if termWidth, _, err := term.GetSize(0); err == nil {
+		if termWidth > 0 {
+			width = termWidth
+		}
+	}
 
-	return lipgloss.NewStyle().MaxWidth(60).Render(scene)
+	// Сцена с рыцарем, драконом и замком
+	scene := lipgloss.JoinVertical(lipgloss.Left,
+		sky.Render(strings.Repeat(" ", width)),
+		sky.Render("                     "+sun.Render("  \\   /  ")+"                                    "),
+		sky.Render("                      "+sun.Render(".-- ☀ --.")+"                                    "),
+		sky.Render("                     "+sun.Render("  /   \\  ")+"                                    "),
+		sky.Render(strings.Repeat(" ", width)),
+		stone.Render("        ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄        "),
+		stone.Render("      ██  ██  ██  "+knight.Render(" ██  ██  ")+stone.Render("██  ██  ██  ██  ")),
+		stone.Render("      ██  ██  ██  "+knight.Render(" ██  ██  ")+stone.Render("██  ██  ██  ██  ")),
+		stone.Render("      ██  ██  ██                  ██  ██  ██  ██  "),
+		stone.Render("   ▄▄▄██▄▄██▄▄██▄▄▄▄▄▄▄▄▄▄▄▄▄▄██▄▄██▄▄██▄▄██   "),
+		stone.Render("   ██████████████████████████████████████████████   "),
+		gold.Render("   ███  ███  ██████████████████  ███  ███  ███   "),
+		gold.Render("   ███  ███  ██████████████████  ███  ███  ███   "),
+		dragon.Render("   ███  ███  ██████████████████  ███  ███  ███   "),
+		grass.Render("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"),
+	)
+
+	return lipgloss.NewStyle().MaxWidth(width).Render(scene)
 }

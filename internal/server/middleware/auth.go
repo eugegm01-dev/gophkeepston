@@ -1,3 +1,4 @@
+// Package middleware provides gRPC interceptors for authentication.
 package middleware
 
 import (
@@ -10,6 +11,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// UnaryAuthInterceptor returns a gRPC unary interceptor that validates JWT tokens.
 func UnaryAuthInterceptor(jwtManager *jwt.Manager) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		if info.FullMethod == "/gophkeeper.auth.Auth/Register" || info.FullMethod == "/gophkeeper.auth.Auth/Login" || info.FullMethod == "/gophkeeper.auth.Auth/RefreshToken" {

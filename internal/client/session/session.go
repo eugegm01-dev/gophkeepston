@@ -1,3 +1,5 @@
+// Package session manages encrypted session files.
+// It saves and loads master key, access/refresh tokens, and provides token refresh.
 package session
 
 import (
@@ -13,6 +15,7 @@ import (
 
 var SessionFile = "session.enc"
 
+// Session holds the user ID, master key, and tokens.
 type Session struct {
 	UserID       string `json:"user_id"`
 	MasterKey    []byte `json:"master_key"`
@@ -20,6 +23,7 @@ type Session struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
+// Save encrypts the session and writes it to SessionFile.
 func Save(encKey []byte, userID string, key []byte, accessToken, refreshToken string) error {
 	s := Session{
 		UserID:       userID,
@@ -38,6 +42,7 @@ func Save(encKey []byte, userID string, key []byte, accessToken, refreshToken st
 	return os.WriteFile(SessionFile, ct, 0600)
 }
 
+// Load reads and decrypts the session from SessionFile.
 func Load(password []byte) (*Session, error) {
 	ct, err := os.ReadFile(SessionFile)
 	if err != nil {
