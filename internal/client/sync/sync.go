@@ -12,6 +12,8 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
+var NewClientFunc = NewClient
+
 type Client struct {
 	conn  *grpc.ClientConn
 	sync  syncpb.SyncClient
@@ -56,7 +58,7 @@ func (c *Client) Close() error {
 // Sync выполняет полную синхронизацию: отправляет локальные изменения и получает новые с сервера.
 // Возвращает список полученных Entry для обновления локального хранилища.
 func FullSync(st *store.Store, userID string, token string, serverAddr string) error {
-	cli, err := NewClient(serverAddr, token)
+	cli, err := NewClientFunc(serverAddr, token)
 	if err != nil {
 		return err
 	}
@@ -118,4 +120,12 @@ func FullSync(st *store.Store, userID string, token string, serverAddr string) e
 	}
 
 	return nil
+}
+
+func NewClientWithConn(conn *grpc.ClientConn, token string) *Client {
+	return &Client{
+		conn:  conn,
+		sync:  syncpb.NewSyncClient(conn),
+		token: token,
+	}
 }

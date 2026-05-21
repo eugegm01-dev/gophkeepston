@@ -11,6 +11,8 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+var SessionFile = "session.enc"
+
 type Session struct {
 	UserID       string `json:"user_id"`
 	MasterKey    []byte `json:"master_key"`
@@ -33,11 +35,11 @@ func Save(encKey []byte, userID string, key []byte, accessToken, refreshToken st
 	if err != nil {
 		return err
 	}
-	return os.WriteFile("session.enc", ct, 0600)
+	return os.WriteFile(SessionFile, ct, 0600)
 }
 
 func Load(password []byte) (*Session, error) {
-	ct, err := os.ReadFile("session.enc")
+	ct, err := os.ReadFile(SessionFile)
 	if err != nil {
 		return nil, err
 	}
