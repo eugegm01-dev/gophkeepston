@@ -201,6 +201,14 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.addForm = newTextForm()
 					return m, m.addForm.Init()
 				}
+			case "c":
+				if m.screen == screenChooseType {
+					m.addingType = "card"
+					m.screen = screenAdd
+					m.adding = true
+					m.addForm = newCardForm()
+					return m, m.addForm.Init()
+				}
 			case "esc":
 				if m.screen == screenChooseType {
 					m.screen = screenList
@@ -251,7 +259,7 @@ func (m *model) View() string {
 		}
 		return "Loading form..."
 	case screenChooseType:
-		return docStyle.Render("Select type:\n\np: password\nt: text\n\nesc: back")
+		return docStyle.Render("Select type:\n\np: password\nt: text\nc: card\n\nesc: back")
 	}
 	return ""
 }
@@ -358,6 +366,17 @@ func loadEntriesCmd(m *model) tea.Cmd {
 					title:     entry.Title,
 					desc:      preview,
 				})
+			case "card":
+				var entry CardEntry
+				if err := json.Unmarshal(plain, &entry); err != nil {
+					continue
+				}
+				items = append(items, item{
+					id:        id,
+					entryType: "card",
+					title:     entry.Holder,
+					desc:      entry.Number + " " + entry.Expiry,
+				})
 			}
 		}
 		return entriesLoadedMsg{items}
@@ -434,6 +453,33 @@ func saveEntryCmd(m *model) tea.Cmd {
 				return errMsg{err}
 			}
 			entryID := fmt.Sprintf("text-%d", time.Now().UnixNano())
+			if err := m.store.Put(m.session.UserID, entryID, ciphertext); err != nil {
+				return errMsg{err}
+			}
+		case "card":
+			number := form.GetString("number")
+			expiry := form.GetString("expiry")
+			cvv := form.GetString("cvv")
+			holder := form.GetString("holder")
+			meta := form.GetString("meta")
+
+			if number == "" || expiry == "" || cvv == "" {
+				return errMsg{fmt.Errorf("number, expiry and cvv are required")}
+			}
+			entry := CardEntry{
+				Type:   "card",
+				Number: number,
+				Expiry: expiry,
+				CVV:    cvv,
+				Holder: holder,
+				Meta:   meta,
+			}
+			plain, _ := json.Marshal(entry)
+			ciphertext, err := crypto.Encrypt(plain, m.masterKey)
+			if err != nil {
+				return errMsg{err}
+			}
+			entryID := fmt.Sprintf("card-%d", time.Now().UnixNano())
 			if err := m.store.Put(m.session.UserID, entryID, ciphertext); err != nil {
 				return errMsg{err}
 			}
@@ -690,6 +736,15 @@ type TextEntry struct {
 	Meta    string `json:"meta"`
 }
 
+type CardEntry struct {
+	Type   string `json:"type"`
+	Number string `json:"number"`
+	Expiry string `json:"expiry"`
+	CVV    string `json:"cvv"`
+	Holder string `json:"holder"`
+	Meta   string `json:"meta"`
+}
+
 func newTextForm() *huh.Form {
 	title := ""
 	content := ""
@@ -718,6 +773,23 @@ func newAddForm() *huh.Form {
 			huh.NewInput().Title("Meta").Value(&meta),
 			huh.NewConfirm().Title("Is it OTP?").Value(&isOTP),
 			huh.NewInput().Title("OTP Secret (if OTP)").Value(&otpSecret),
+		),
+	).WithTheme(huh.ThemeBase())
+}
+
+func newCardForm() *huh.Form {
+	number := ""
+	expiry := ""
+	cvv := ""
+	holder := ""
+	meta := ""
+	return huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().Key("number").Title("Card number").Value(&number),
+			huh.NewInput().Key("expiry").Title("Expiry (MM/YY)").Value(&expiry),
+			huh.NewInput().Key("cvv").Title("CVV").EchoMode(huh.EchoModePassword).Value(&cvv),
+			huh.NewInput().Key("holder").Title("Holder name").Value(&holder),
+			huh.NewInput().Key("meta").Title("Meta (optional)").Value(&meta),
 		),
 	).WithTheme(huh.ThemeBase())
 }

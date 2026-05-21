@@ -42,6 +42,15 @@ type TextEntry struct {
 	Meta    string `json:"meta"`
 }
 
+type CardEntry struct {
+	Type   string `json:"type"` // "card"
+	Number string `json:"number"`
+	Expiry string `json:"expiry"`
+	CVV    string `json:"cvv"`
+	Holder string `json:"holder"`
+	Meta   string `json:"meta"`
+}
+
 func init() {
 	rootCmd.PersistentFlags().StringVar(&serverAddr, "server", "localhost:50051", "gRPC server address")
 }
@@ -230,6 +239,41 @@ var addCmd = &cobra.Command{
 				return fmt.Errorf("store: %w", err)
 			}
 			fmt.Println("Text entry added:", entryID)
+		case "card":
+			fmt.Print("Card number: ")
+			var number string
+			fmt.Scanln(&number)
+			fmt.Print("Expiry (MM/YY): ")
+			var expiry string
+			fmt.Scanln(&expiry)
+			fmt.Print("CVV: ")
+			var cvv string
+			fmt.Scanln(&cvv)
+			fmt.Print("Holder name: ")
+			var holder string
+			fmt.Scanln(&holder)
+			fmt.Print("Meta (optional): ")
+			var meta string
+			fmt.Scanln(&meta)
+
+			entry := CardEntry{
+				Type:   "card",
+				Number: number,
+				Expiry: expiry,
+				CVV:    cvv,
+				Holder: holder,
+				Meta:   meta,
+			}
+			plain, _ := json.Marshal(entry)
+			ciphertext, err := crypto.Encrypt(plain, masterKey)
+			if err != nil {
+				return fmt.Errorf("encrypt: %w", err)
+			}
+			entryID := fmt.Sprintf("card-%d", time.Now().UnixNano())
+			if err := localStore.Put(userID, entryID, ciphertext); err != nil {
+				return fmt.Errorf("store: %w", err)
+			}
+			fmt.Println("Card entry added:", entryID)
 		default:
 			return fmt.Errorf("unsupported type: %s", typ)
 		}
@@ -272,6 +316,13 @@ var getCmd = &cobra.Command{
 			}
 			fmt.Printf("Title: %s\nContent: %s\nMeta: %s\n",
 				entry.Title, entry.Content, entry.Meta)
+		case "card":
+			var entry CardEntry
+			if err := json.Unmarshal(plain, &entry); err != nil {
+				return fmt.Errorf("unmarshal card: %w", err)
+			}
+			fmt.Printf("Number: %s\nExpiry: %s\nCVV: %s\nHolder: %s\nMeta: %s\n",
+				entry.Number, entry.Expiry, entry.CVV, entry.Holder, entry.Meta)
 		default:
 			fmt.Println("Unknown entry type")
 		}
