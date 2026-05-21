@@ -1,0 +1,66 @@
+syntax = "proto3";
+
+package gophkeeper.auth;
+
+option go_package = "github.com/eugegm01-dev/gophkeepston/api/proto/auth;authpb";
+
+import "google/api/annotations.proto";
+import "protoc-gen-openapiv2/options/annotations.proto";
+
+option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_swagger) = {
+  info: {
+    title: "GophKeeper Auth API";
+    version: "1.0";
+    description: "Authentication service for GophKeeper password manager";
+  };
+  host: "localhost:50051";
+};
+
+service Auth {
+  rpc Register(RegisterRequest) returns (RegisterResponse) {
+    option (google.api.http) = { post: "/v1/auth/register"; body: "*"; };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Register new user";
+      description: "Creates a new user account with zero-knowledge secret.";
+      tags: "Auth";
+    };
+  }
+  rpc Login(LoginRequest) returns (LoginResponse) {
+    option (google.api.http) = { post: "/v1/auth/login"; body: "*"; };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Login user";
+      description: "Returns encrypted secret and tokens.";
+      tags: "Auth";
+    };
+  }
+  rpc RefreshToken(RefreshTokenRequest) returns (RefreshTokenResponse) {
+    option (google.api.http) = { post: "/v1/auth/refresh"; body: "*"; };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Refresh access token";
+      description: "Returns new access token using refresh token.";
+      tags: "Auth";
+    };
+  }
+}
+
+message RegisterRequest {
+  string login = 1;
+  bytes encrypted_secret = 2;
+}
+message RegisterResponse {
+  string user_id = 1;
+}
+message LoginRequest {
+  string login = 1;
+}
+message LoginResponse {
+  bytes encrypted_secret = 1;
+  string access_token = 2;
+  string refresh_token = 3;
+}
+message RefreshTokenRequest {
+  string refresh_token = 1;
+}
+message RefreshTokenResponse {
+  string access_token = 1;
+}
