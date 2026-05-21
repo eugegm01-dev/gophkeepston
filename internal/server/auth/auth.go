@@ -5,6 +5,7 @@ package auth
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	authpb "github.com/eugegm01-dev/gophkeepston/api/proto/auth"
 	"github.com/eugegm01-dev/gophkeepston/internal/pkg/jwt"
@@ -51,10 +52,34 @@ func (s *AuthService) Login(ctx context.Context, req *authpb.LoginRequest) (*aut
 	}
 	access, _ := s.jwtManager.GenerateAccessToken(userID)
 	refresh, _ := s.jwtManager.GenerateRefreshToken(userID)
-	// Сохраняем refresh token в БД (можно добавить таблицу refresh_tokens)
+
+	// Сохраняем refresh-токен в БД
+	_, err = s.db.Exec(`INSERT INTO refresh_tokens (id, user_id, token, expires_at) VALUES ($1, $2, $3, $4)`,
+		uuid.New().String(), userID, refresh, time.Now().Add(72*time.Hour))
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "save refresh token: %v", err)
+	}
+
 	return &authpb.LoginResponse{
 		EncryptedSecret: encSecret,
 		AccessToken:     access,
 		RefreshToken:    refresh,
 	}, nil
+}
+
+func (s *AuthService) RefreshToken(ctx context.Context, req *authpb.RefreshTokenRequest) (*authpb.RefreshTokenResponse, error) {
+	// Проверяем refresh-токен в БД (можно просто провалидировать как JWT)
+	var userID string
+	err := s.db.QueryRow(`SELECT user_id FROM refresh_tokens WHERE token = $1 AND expires_at > now()`, req.RefreshToken).Scan(&userID)
+	if err != nil {
+		return nil, status.Error(codes.Unauthenticated, "invalid or expired refresh token")
+	}
+
+	// Генерируем новый access-токен
+	access, err := s.jwtManager.GenerateAccessToken(userID)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "generate access: %v", err)
+	}
+
+	return &authpb.RefreshTokenResponse{AccessToken: access}, nil
 }

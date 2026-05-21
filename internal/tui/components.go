@@ -594,7 +594,11 @@ func saveEntryCmd(m *model) tea.Cmd {
 			if err := m.store.Put(m.session.UserID, entryID, ciphertext); err != nil {
 				return errMsg{err}
 			}
+
 		}
+		go func() {
+			_ = syncclient.FullSync(m.store, m.session.UserID, m.session.AccessToken, m.serverAddr)
+		}()
 
 		m.screen = screenList
 		return loadEntriesCmd(m)()
