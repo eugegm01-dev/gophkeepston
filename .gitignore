@@ -9,3 +9,13 @@ server
 *.exe
 *.exetui
 coverage.out
+
+server
+tui
+gophkeeper
+*.exe
+coverage.out
+gophkeepston.db
+session.enc
+certs/*.key
+certs/*.crt
