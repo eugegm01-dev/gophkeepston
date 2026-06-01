@@ -5,5 +5,7 @@ session.enc
 # Бинарники
 gophkeeper
 tui
+server
+*.exe
 *.exetui
 coverage.out
