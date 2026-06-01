@@ -4,12 +4,12 @@ package sync
 
 import (
 	"context"
-	"database/sql"
 	"time"
 
 	syncpb "github.com/eugegm01-dev/gophkeepston/api/proto/sync"
 	"github.com/eugegm01-dev/gophkeepston/internal/server/middleware"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -17,11 +17,11 @@ import (
 // SyncService implements the Sync gRPC server.
 type SyncService struct {
 	syncpb.UnimplementedSyncServer
-	db *sql.DB
+	db *pgxpool.Pool
 }
 
 // NewSyncService creates a SyncService with a database connection.
-func NewSyncService(db *sql.DB) *SyncService {
+func NewSyncService(db *pgxpool.Pool) *SyncService {
 	return &SyncService{db: db}
 }
 
@@ -33,8 +33,7 @@ func (s *SyncService) Push(ctx context.Context, req *syncpb.PushRequest) (*syncp
 	}
 
 	for _, entry := range req.Entries {
-		// Обновляем или вставляем запись
-		_, err := s.db.Exec(`
+		_, err := s.db.Exec(ctx, `
             INSERT INTO entries (id, user_id, entry_id, encrypted_data, encrypted_meta, version, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
             ON CONFLICT (user_id, entry_id) DO UPDATE SET
@@ -58,7 +57,7 @@ func (s *SyncService) Pull(ctx context.Context, req *syncpb.PullRequest) (*syncp
 		return nil, status.Error(codes.Unauthenticated, "user_id not found")
 	}
 
-	rows, err := s.db.Query(`
+	rows, err := s.db.Query(ctx, `
         SELECT entry_id, encrypted_data, encrypted_meta, version, updated_at
         FROM entries
         WHERE user_id = $1 AND version > $2
@@ -82,13 +81,22 @@ func (s *SyncService) Pull(ctx context.Context, req *syncpb.PullRequest) (*syncp
 
 	return &syncpb.PullResponse{Entries: entries}, nil
 }
+
+// Delete removes an entry by user_id and entry_id.
+// #06: убрали условие `version < $3` — оно было всегда ложным,
+// так как клиент передаёт version = -1, а реальные версии ≥ 0.
+// Теперь просто удаляем запись по её идентификатору.
 func (s *SyncService) Delete(ctx context.Context, req *syncpb.DeleteRequest) (*syncpb.DeleteResponse, error) {
 	userID, ok := ctx.Value(middleware.UserIDKey).(string)
 	if !ok {
 		return nil, status.Error(codes.Unauthenticated, "user_id not found")
 	}
-	_, err := s.db.Exec(`DELETE FROM entries WHERE user_id = $1 AND entry_id = $2 AND version < $3`,
-		userID, req.EntryId, req.Version)
+
+	// Просто удаляем запись по user_id и entry_id
+	_, err := s.db.Exec(ctx,
+		`DELETE FROM entries WHERE user_id = $1 AND entry_id = $2`,
+		userID, req.EntryId,
+	)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "delete entry: %v", err)
 	}

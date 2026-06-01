@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"crypto/rand"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,6 +16,7 @@ import (
 	"github.com/eugegm01-dev/gophkeepston/internal/client/session"
 	"github.com/eugegm01-dev/gophkeepston/internal/client/store"
 	syncclient "github.com/eugegm01-dev/gophkeepston/internal/client/sync"
+	domainentry "github.com/eugegm01-dev/gophkeepston/internal/domain/entry"
 )
 
 var (
@@ -27,38 +27,6 @@ var (
 	accessToken string
 )
 
-type PasswordEntry struct {
-	Type      string `json:"type"`
-	Site      string `json:"site"`
-	Login     string `json:"login"`
-	Password  string `json:"password"`
-	Meta      string `json:"meta"`
-	IsOTP     bool   `json:"is_otp,omitempty"`
-	OTPSecret string `json:"otp_secret,omitempty"`
-}
-
-type TextEntry struct {
-	Type    string `json:"type"`
-	Title   string `json:"title"`
-	Content string `json:"content"`
-	Meta    string `json:"meta"`
-}
-
-type CardEntry struct {
-	Type   string `json:"type"` // "card"
-	Number string `json:"number"`
-	Expiry string `json:"expiry"`
-	CVV    string `json:"cvv"`
-	Holder string `json:"holder"`
-	Meta   string `json:"meta"`
-}
-type BinaryEntry struct {
-	Type     string `json:"type"` // "binary"
-	FileName string `json:"file_name"`
-	Data     []byte `json:"data"`
-	Meta     string `json:"meta"`
-}
-
 func init() {
 	rootCmd.PersistentFlags().StringVar(&serverAddr, "server", "localhost:50051", "gRPC server address")
 	rootCmd.Version = "1.0.0"
@@ -66,11 +34,9 @@ func init() {
 }
 
 func requireSession(cmd *cobra.Command, args []string) error {
-	// Если уже загружено (например, после login в том же процессе) – пропускаем
 	if localStore != nil && masterKey != nil {
 		return nil
 	}
-	// Пытаемся загрузить сессию
 	fmt.Print("Master password: ")
 	password, _ := term.ReadPassword(int(os.Stdin.Fd()))
 	fmt.Println()
@@ -85,11 +51,20 @@ func requireSession(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("open store: %w", err)
 	}
-	if err := s.EnsureFreshAccess(serverAddr); err != nil {
+
+	sessionKey, err := crypto.DeriveKey(password, []byte("gophkeepston-session-salt"))
+	if err != nil {
+		return fmt.Errorf("derive session key: %w", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := s.EnsureFreshAccess(ctx, serverAddr, sessionKey); err != nil {
 		return fmt.Errorf("refresh session: %w", err)
 	}
-	// синхронизация
-	syncclient.FullSync(localStore, s.UserID, s.AccessToken, serverAddr)
+
+	ctxSync, cancelSync := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancelSync()
+	syncclient.FullSync(ctxSync, localStore, s.UserID, s.AccessToken, serverAddr)
 	return nil
 }
 
@@ -97,7 +72,6 @@ var rootCmd = &cobra.Command{
 	Use:   "gophkeeper",
 	Short: "GophKeeper password manager",
 }
-
 var registerCmd = &cobra.Command{
 	Use:   "register",
 	Short: "Register new user",
@@ -114,19 +88,25 @@ var registerCmd = &cobra.Command{
 			return fmt.Errorf("rand: %w", err)
 		}
 
-		regKey := crypto.DeriveKey(password, []byte("gophkeepston-reg-salt"))
+		// Исправлено: DeriveKey возвращает два значения
+		regKey, err := crypto.DeriveKey(password, []byte("gophkeepston-reg-salt"))
+		if err != nil {
+			return fmt.Errorf("derive reg key: %w", err)
+		}
 		encSecret, err := crypto.Encrypt(secret, regKey)
 		if err != nil {
 			return fmt.Errorf("encrypt secret: %w", err)
 		}
 
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
 		client, err := authclient.NewClient(serverAddr)
 		if err != nil {
 			return err
 		}
 		defer client.Close()
 
-		uid, err := client.Register(context.Background(), login, encSecret)
+		uid, err := client.Register(ctx, login, encSecret)
 		if err != nil {
 			return fmt.Errorf("register: %w", err)
 		}
@@ -146,24 +126,33 @@ var loginCmd = &cobra.Command{
 		password, _ := term.ReadPassword(int(os.Stdin.Fd()))
 		fmt.Println()
 
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
 		client, err := authclient.NewClient(serverAddr)
 		if err != nil {
 			return err
 		}
 		defer client.Close()
 
-		resp, err := client.Login(context.Background(), login)
+		resp, err := client.Login(ctx, login)
 		if err != nil {
 			return fmt.Errorf("login: %w", err)
 		}
 
-		regKey := crypto.DeriveKey(password, []byte("gophkeepston-reg-salt"))
+		// Исправлено: DeriveKey возвращает два значения
+		regKey, err := crypto.DeriveKey(password, []byte("gophkeepston-reg-salt"))
+		if err != nil {
+			return fmt.Errorf("derive reg key: %w", err)
+		}
 		secret, err := crypto.Decrypt(resp.EncryptedSecret, regKey)
 		if err != nil {
-			return fmt.Errorf("invalid master password")
+			return fmt.Errorf("invalid master password: %w", err)
 		}
 
-		masterKey = crypto.DeriveKey(append(secret, password...), []byte("gophkeepston-master-salt"))
+		masterKey, err := crypto.DeriveKey(append(secret, password...), []byte("gophkeepston-master-salt"))
+		if err != nil {
+			return fmt.Errorf("derive master key: %w", err)
+		}
 		userID = login
 
 		localStore, err = store.NewStore("gophkeepston.db")
@@ -171,14 +160,20 @@ var loginCmd = &cobra.Command{
 			return fmt.Errorf("open store: %w", err)
 		}
 
-		// Сохраняем сессию с токенами
-		sessionKey := crypto.DeriveKey(password, []byte("gophkeepston-session-salt"))
+		sessionKey, err := crypto.DeriveKey(password, []byte("gophkeepston-session-salt"))
+		if err != nil {
+			return fmt.Errorf("derive session key: %w", err)
+		}
 		if err := session.Save(sessionKey, userID, masterKey, resp.AccessToken, resp.RefreshToken); err != nil {
 			return fmt.Errorf("save session: %w", err)
 		}
 
-		// Синхронизируем данные с сервером
-		syncclient.FullSync(localStore, userID, resp.AccessToken, serverAddr)
+		ctxSync, cancelSync := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancelSync()
+		if err := syncclient.FullSync(ctxSync, localStore, userID, resp.AccessToken, serverAddr); err != nil {
+			// логируем, но не прерываем
+			fmt.Printf("Warning: initial sync failed: %v\n", err)
+		}
 
 		fmt.Println("Logged in successfully. Session saved.")
 		return nil
@@ -192,6 +187,9 @@ var addCmd = &cobra.Command{
 	PreRunE: requireSession,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		typ := args[0]
+		var entry domainentry.Entry
+		var err error
+
 		switch typ {
 		case "password":
 			fmt.Print("Site: ")
@@ -206,29 +204,14 @@ var addCmd = &cobra.Command{
 			fmt.Print("Meta (optional): ")
 			var meta string
 			fmt.Scanln(&meta)
-
-			entry := PasswordEntry{
+			entry = domainentry.PasswordEntry{
+				ID:       "",
+				Type:     domainentry.TypePassword,
 				Site:     site,
 				Login:    login,
 				Password: string(pass),
 				Meta:     meta,
 			}
-			plain, _ := json.Marshal(entry)
-			ciphertext, err := crypto.Encrypt(plain, masterKey)
-			if err != nil {
-				return fmt.Errorf("encrypt: %w", err)
-			}
-			entryID := fmt.Sprintf("%s-%d", site, time.Now().UnixNano())
-			if err := localStore.Put(userID, entryID, ciphertext); err != nil {
-				return fmt.Errorf("store: %w", err)
-			}
-			ver := time.Now().UnixNano()
-			_ = localStore.PutVersion(userID, entryID, ver)
-			go func() {
-				_ = syncclient.FullSync(localStore, userID, accessToken, serverAddr)
-			}()
-			fmt.Println("Entry added:", entryID)
-
 		case "text":
 			fmt.Print("Title: ")
 			var title string
@@ -239,29 +222,13 @@ var addCmd = &cobra.Command{
 			fmt.Print("Meta (optional): ")
 			var meta string
 			fmt.Scanln(&meta)
-
-			entry := TextEntry{
-				Type:    "text",
+			entry = domainentry.TextEntry{
+				ID:      "",
+				Type:    domainentry.TypeText,
 				Title:   title,
 				Content: content,
 				Meta:    meta,
 			}
-			plain, _ := json.Marshal(entry)
-			ciphertext, err := crypto.Encrypt(plain, masterKey)
-			if err != nil {
-				return fmt.Errorf("encrypt: %w", err)
-			}
-			entryID := fmt.Sprintf("text-%d", time.Now().UnixNano())
-			if err := localStore.Put(userID, entryID, ciphertext); err != nil {
-				return fmt.Errorf("store: %w", err)
-			}
-			ver := time.Now().UnixNano()
-			_ = localStore.PutVersion(userID, entryID, ver)
-			go func() {
-				_ = syncclient.FullSync(localStore, userID, accessToken, serverAddr)
-			}()
-			fmt.Println("Text entry added:", entryID)
-
 		case "card":
 			fmt.Print("Card number: ")
 			var number string
@@ -278,69 +245,60 @@ var addCmd = &cobra.Command{
 			fmt.Print("Meta (optional): ")
 			var meta string
 			fmt.Scanln(&meta)
-
-			entry := CardEntry{
-				Type:   "card",
+			entry = domainentry.CardEntry{
+				ID:     "",
+				Type:   domainentry.TypeCard,
 				Number: number,
 				Expiry: expiry,
 				CVV:    cvv,
 				Holder: holder,
 				Meta:   meta,
 			}
-			plain, _ := json.Marshal(entry)
-			ciphertext, err := crypto.Encrypt(plain, masterKey)
-			if err != nil {
-				return fmt.Errorf("encrypt: %w", err)
-			}
-			entryID := fmt.Sprintf("card-%d", time.Now().UnixNano())
-			if err := localStore.Put(userID, entryID, ciphertext); err != nil {
-				return fmt.Errorf("store: %w", err)
-			}
-			ver := time.Now().UnixNano()
-			_ = localStore.PutVersion(userID, entryID, ver)
-			go func() {
-				_ = syncclient.FullSync(localStore, userID, accessToken, serverAddr)
-			}()
-			fmt.Println("Card entry added:", entryID)
-
 		case "binary":
 			fmt.Print("File path: ")
 			var path string
 			fmt.Scanln(&path)
-			data, err := os.ReadFile(path)
-			if err != nil {
-				return fmt.Errorf("read file: %w", err)
+			data, e := os.ReadFile(path)
+			if e != nil {
+				return fmt.Errorf("read file: %w", e)
 			}
 			fileName := filepath.Base(path)
 			fmt.Print("Meta (optional): ")
 			var meta string
 			fmt.Scanln(&meta)
-
-			entry := BinaryEntry{
-				Type:     "binary",
+			entry = domainentry.BinaryEntry{
+				ID:       "",
+				Type:     domainentry.TypeBinary,
 				FileName: fileName,
 				Data:     data,
 				Meta:     meta,
 			}
-			plain, _ := json.Marshal(entry)
-			ciphertext, err := crypto.Encrypt(plain, masterKey)
-			if err != nil {
-				return fmt.Errorf("encrypt: %w", err)
-			}
-			entryID := fmt.Sprintf("binary-%d", time.Now().UnixNano())
-			if err := localStore.Put(userID, entryID, ciphertext); err != nil {
-				return fmt.Errorf("store: %w", err)
-			}
-			ver := time.Now().UnixNano()
-			_ = localStore.PutVersion(userID, entryID, ver)
-			go func() {
-				_ = syncclient.FullSync(localStore, userID, accessToken, serverAddr)
-			}()
-			fmt.Println("Binary entry added:", entryID)
-
 		default:
 			return fmt.Errorf("unsupported type: %s", typ)
 		}
+
+		plain, err := domainentry.Marshal(entry)
+		if err != nil {
+			return fmt.Errorf("marshal: %w", err)
+		}
+		ciphertext, err := crypto.Encrypt(plain, masterKey)
+		if err != nil {
+			return fmt.Errorf("encrypt: %w", err)
+		}
+
+		entryID := fmt.Sprintf("%s-%d", typ, time.Now().UnixNano())
+		if err := localStore.Put(userID, entryID, ciphertext); err != nil {
+			return fmt.Errorf("store: %w", err)
+		}
+		ver := time.Now().UnixNano()
+		_ = localStore.PutVersion(userID, entryID, ver)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		go func() {
+			_ = syncclient.FullSync(ctx, localStore, userID, accessToken, serverAddr)
+		}()
+		fmt.Println("Entry added:", entryID)
 		return nil
 	},
 }
@@ -360,45 +318,26 @@ var getCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("decrypt: %w", err)
 		}
-		// Сначала проверяем тип
-		var typeCheck struct{ Type string }
-		if err := json.Unmarshal(plain, &typeCheck); err != nil {
-			return fmt.Errorf("unmarshal type: %w", err)
+		e, err := domainentry.Unmarshal(plain)
+		if err != nil {
+			return fmt.Errorf("unmarshal entry: %w", err)
 		}
-		switch typeCheck.Type {
-		case "password":
-			var entry PasswordEntry
-			if err := json.Unmarshal(plain, &entry); err != nil {
-				return fmt.Errorf("unmarshal password: %w", err)
-			}
-			fmt.Printf("Site: %s\nLogin: %s\nPassword: %s\nMeta: %s\n",
-				entry.Site, entry.Login, entry.Password, entry.Meta)
-		case "text":
-			var entry TextEntry
-			if err := json.Unmarshal(plain, &entry); err != nil {
-				return fmt.Errorf("unmarshal text: %w", err)
-			}
-			fmt.Printf("Title: %s\nContent: %s\nMeta: %s\n",
-				entry.Title, entry.Content, entry.Meta)
-		case "card":
-			var entry CardEntry
-			if err := json.Unmarshal(plain, &entry); err != nil {
-				return fmt.Errorf("unmarshal card: %w", err)
-			}
-			fmt.Printf("Number: %s\nExpiry: %s\nCVV: %s\nHolder: %s\nMeta: %s\n",
-				entry.Number, entry.Expiry, entry.CVV, entry.Holder, entry.Meta)
-		case "binary":
-			var entry BinaryEntry
-			if err := json.Unmarshal(plain, &entry); err != nil {
-				return fmt.Errorf("unmarshal binary: %w", err)
-			}
-			outPath := entry.FileName + ".extracted"
-			if err := os.WriteFile(outPath, entry.Data, 0644); err != nil {
+
+		switch v := e.(type) {
+		case domainentry.PasswordEntry:
+			fmt.Printf("Site: %s\nLogin: %s\nPassword: %s\nMeta: %s\n", v.Site, v.Login, v.Password, v.Meta)
+		case domainentry.TextEntry:
+			fmt.Printf("Title: %s\nContent: %s\nMeta: %s\n", v.Title, v.Content, v.Meta)
+		case domainentry.CardEntry:
+			fmt.Printf("Number: %s\nExpiry: %s\nCVV: %s\nHolder: %s\nMeta: %s\n", v.Number, v.Expiry, v.CVV, v.Holder, v.Meta)
+		case domainentry.BinaryEntry:
+			outPath := v.FileName + ".extracted"
+			if err := os.WriteFile(outPath, v.Data, 0644); err != nil {
 				return fmt.Errorf("write file: %w", err)
 			}
-			fmt.Printf("Binary saved to %s\nMeta: %s\n", outPath, entry.Meta)
+			fmt.Printf("Binary saved to %s\nMeta: %s\n", outPath, v.Meta)
 		default:
-			fmt.Println("Unknown entry type")
+			return fmt.Errorf("unknown entry type: %T", v)
 		}
 		return nil
 	},
@@ -428,8 +367,10 @@ var deleteCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		entryID := args[0]
 		_ = localStore.PutVersion(userID, entryID, -1)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
 		go func() {
-			_ = syncclient.FullSync(localStore, userID, accessToken, serverAddr)
+			_ = syncclient.FullSync(ctx, localStore, userID, accessToken, serverAddr)
 		}()
 		fmt.Printf("Marked %s for deletion\n", entryID)
 		return nil

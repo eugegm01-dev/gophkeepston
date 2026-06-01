@@ -166,6 +166,7 @@ type LoginResponse struct {
 	EncryptedSecret []byte                 `protobuf:"bytes,1,opt,name=encrypted_secret,json=encryptedSecret,proto3" json:"encrypted_secret,omitempty"`
 	AccessToken     string                 `protobuf:"bytes,2,opt,name=access_token,json=accessToken,proto3" json:"access_token,omitempty"`
 	RefreshToken    string                 `protobuf:"bytes,3,opt,name=refresh_token,json=refreshToken,proto3" json:"refresh_token,omitempty"`
+	Salt            []byte                 `protobuf:"bytes,4,opt,name=salt,proto3" json:"salt,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -219,6 +220,13 @@ func (x *LoginResponse) GetRefreshToken() string {
 		return x.RefreshToken
 	}
 	return ""
+}
+
+func (x *LoginResponse) GetSalt() []byte {
+	if x != nil {
+		return x.Salt
+	}
+	return nil
 }
 
 type RefreshTokenRequest struct {
@@ -329,11 +337,12 @@ const file_auth_proto_rawDesc = "" +
 	"\x10RegisterResponse\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\"$\n" +
 	"\fLoginRequest\x12\x14\n" +
-	"\x05login\x18\x01 \x01(\tR\x05login\"\x82\x01\n" +
+	"\x05login\x18\x01 \x01(\tR\x05login\"\x96\x01\n" +
 	"\rLoginResponse\x12)\n" +
 	"\x10encrypted_secret\x18\x01 \x01(\fR\x0fencryptedSecret\x12!\n" +
 	"\faccess_token\x18\x02 \x01(\tR\vaccessToken\x12#\n" +
-	"\rrefresh_token\x18\x03 \x01(\tR\frefreshToken\":\n" +
+	"\rrefresh_token\x18\x03 \x01(\tR\frefreshToken\x12\x12\n" +
+	"\x04salt\x18\x04 \x01(\fR\x04salt\":\n" +
 	"\x13RefreshTokenRequest\x12#\n" +
 	"\rrefresh_token\x18\x01 \x01(\tR\frefreshToken\"^\n" +
 	"\x14RefreshTokenResponse\x12!\n" +

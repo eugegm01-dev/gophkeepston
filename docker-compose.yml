@@ -1,5 +1,12 @@
 version: '3.8'
 services:
+  server:  # ← нужно добавить этот сервис
+    build: .
+    environment:
+      - DATABASE_DSN=postgres://gophkeepston:secret@postgres:5432/gophkeepston?sslmode=disable
+      - JWT_SECRET=change-me-in-production
+    depends_on:
+      - postgres
   postgres:
     image: postgres:15-alpine
     environment:

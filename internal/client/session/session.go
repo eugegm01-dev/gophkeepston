@@ -5,6 +5,7 @@ package session
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"time"
 
@@ -14,6 +15,8 @@ import (
 )
 
 var SessionFile = "session.enc"
+
+const sessionFile = "session.enc"
 
 // Session holds the user ID, master key, and tokens.
 type Session struct {
@@ -48,7 +51,10 @@ func Load(password []byte) (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	key := crypto.DeriveKey(password, []byte("gophkeepston-session-salt"))
+	key, err := crypto.DeriveKey(password, []byte("gophkeepston-session-salt"))
+	if err != nil {
+		return nil, err
+	}
 	plain, err := crypto.Decrypt(ct, key)
 	if err != nil {
 		return nil, err
@@ -61,21 +67,49 @@ func Load(password []byte) (*Session, error) {
 }
 
 // EnsureFreshAccess проверяет, не истёк ли access-токен, и обновляет его через сервер при необходимости.
-func (s *Session) EnsureFreshAccess(serverAddr string) error {
+// internal/client/session/session.go
+func (s *Session) EnsureFreshAccess(ctx context.Context, serverAddr string, sessionKey []byte) error {
 	if !tokenExpired(s.AccessToken) {
 		return nil
 	}
+
 	client, err := authclient.NewClient(serverAddr)
 	if err != nil {
 		return err
 	}
 	defer client.Close()
-	resp, err := client.Refresh(context.Background(), s.RefreshToken)
+
+	resp, err := client.Refresh(ctx, s.RefreshToken)
 	if err != nil {
-		return err
+		return fmt.Errorf("refresh token: %w", err)
 	}
+
+	// Атомарное обновление: сначала сохраняем на диск, потом в память
+	// (требование безопасности: не терять токены)
+	sessionData := struct {
+		AccessToken  string `json:"access"`
+		RefreshToken string `json:"refresh"`
+	}{
+		AccessToken:  resp.AccessToken,
+		RefreshToken: resp.RefreshToken,
+	}
+	plain, err := json.Marshal(sessionData)
+	if err != nil {
+		return fmt.Errorf("marshal session: %w", err)
+	}
+	encrypted, err := crypto.Encrypt(plain, sessionKey) // ← используем существующую Encrypt
+	if err != nil {
+		return fmt.Errorf("encrypt session: %w", err)
+	}
+
+	if err := os.WriteFile(sessionFile, encrypted, 0600); err != nil {
+		return fmt.Errorf("write session: %w", err)
+	}
+
+	// Только после успешного сохранения обновляем в памяти
 	s.AccessToken = resp.AccessToken
 	s.RefreshToken = resp.RefreshToken
+
 	return nil
 }
 

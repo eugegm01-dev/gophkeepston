@@ -6,7 +6,10 @@ import (
 )
 
 func TestEncryptDecrypt(t *testing.T) {
-	key := DeriveKey([]byte("password"), []byte("salt"))
+	key, err := DeriveKey([]byte("password"), []byte("salt"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	plain := []byte("Hello, GophKeeper!")
 	ct, err := Encrypt(plain, key)
 	if err != nil {
@@ -22,8 +25,11 @@ func TestEncryptDecrypt(t *testing.T) {
 }
 
 func TestDecryptCorrupted(t *testing.T) {
-	key := DeriveKey([]byte("pass"), []byte("salt"))
-	_, err := Decrypt([]byte("short"), key)
+	key, err := DeriveKey([]byte("password"), []byte("salt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = Decrypt([]byte("short"), key)
 	if err == nil {
 		t.Fatal("expected error on short ciphertext")
 	}

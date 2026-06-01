@@ -4,4 +4,6 @@ session.enc
 
 # Бинарники
 gophkeeper
-*.exe
+tui
+*.exetui
+coverage.out

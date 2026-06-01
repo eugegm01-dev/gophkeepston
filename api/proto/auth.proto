@@ -27,6 +27,7 @@ message LoginResponse {
   bytes encrypted_secret = 1;
   string access_token = 2;
   string refresh_token = 3;
+  bytes salt = 4;
 }
 
 message RefreshTokenRequest {
