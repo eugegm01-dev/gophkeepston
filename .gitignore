@@ -18,4 +18,6 @@ coverage.out
 gophkeepston.db
 session.enc
 certs/*.key
-certs/*.crt
+certs/*.crtserver
+tui
+gophkeeper
