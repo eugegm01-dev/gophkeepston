@@ -1,6 +1,8 @@
 # Локальная база и сессия (персональные данные)
 gophkeepston.db
 session.enc
+*.db
+
 
 # Бинарники
 gophkeeper
@@ -19,5 +21,16 @@ gophkeepston.db
 session.enc
 certs/*.key
 certs/*.crtserver
+certs/
 tui
 gophkeeper
+tui
+coverage.out
+*.db
+certs/*.key
+certs/*.crt
+tui
+coverage.out
+*.db
+certs/*.key
+certs/*.crt

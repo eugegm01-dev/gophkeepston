@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/sync/errgroup"
 	"golang.org/x/term"
 
 	"github.com/eugegm01-dev/gophkeepston/internal/client/authclient"
@@ -17,6 +18,11 @@ import (
 	"github.com/eugegm01-dev/gophkeepston/internal/client/store"
 	syncclient "github.com/eugegm01-dev/gophkeepston/internal/client/sync"
 	domainentry "github.com/eugegm01-dev/gophkeepston/internal/domain/entry"
+)
+
+var (
+	buildVersion = "N/A"
+	buildDate    = "N/A"
 )
 
 var (
@@ -29,8 +35,6 @@ var (
 
 func init() {
 	rootCmd.PersistentFlags().StringVar(&serverAddr, "server", "localhost:50051", "gRPC server address")
-	rootCmd.Version = "1.0.0"
-	rootCmd.SetVersionTemplate("Gophkeepston v{{.Version}}\n")
 }
 
 func requireSession(cmd *cobra.Command, args []string) error {
@@ -64,8 +68,18 @@ func requireSession(cmd *cobra.Command, args []string) error {
 
 	ctxSync, cancelSync := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancelSync()
-	syncclient.FullSync(ctxSync, localStore, s.UserID, s.AccessToken, serverAddr)
+	_ = syncclient.FullSync(ctxSync, localStore, s.UserID, s.AccessToken, serverAddr)
 	return nil
+}
+
+func runSync(ctx context.Context, localStore *store.Store, userID, accessToken, serverAddr string) {
+	g, gCtx := errgroup.WithContext(ctx)
+	g.Go(func() error {
+		return syncclient.FullSync(gCtx, localStore, userID, accessToken, serverAddr)
+	})
+	if err := g.Wait(); err != nil {
+		fmt.Fprintf(os.Stderr, "Background sync failed: %v\n", err)
+	}
 }
 
 var rootCmd = &cobra.Command{
@@ -88,7 +102,6 @@ var registerCmd = &cobra.Command{
 			return fmt.Errorf("rand: %w", err)
 		}
 
-		// Исправлено: DeriveKey возвращает два значения
 		regKey, err := crypto.DeriveKey(password, []byte("gophkeepston-reg-salt"))
 		if err != nil {
 			return fmt.Errorf("derive reg key: %w", err)
@@ -182,7 +195,7 @@ var loginCmd = &cobra.Command{
 
 var addCmd = &cobra.Command{
 	Use:     "add [type]",
-	Short:   "Add a new entry (password, text, card, binary)",
+	Short:   "Add a new entry",
 	Args:    cobra.ExactArgs(1),
 	PreRunE: requireSession,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -295,10 +308,9 @@ var addCmd = &cobra.Command{
 
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		go func() {
-			_ = syncclient.FullSync(ctx, localStore, userID, accessToken, serverAddr)
-		}()
-		fmt.Println("Entry added:", entryID)
+		runSync(ctx, localStore, userID, accessToken, serverAddr)
+
+		fmt.Println("Entry added and synced:", entryID)
 		return nil
 	},
 }
@@ -367,11 +379,13 @@ var deleteCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		entryID := args[0]
 		_ = localStore.PutVersion(userID, entryID, -1)
+
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		go func() {
-			_ = syncclient.FullSync(ctx, localStore, userID, accessToken, serverAddr)
-		}()
+
+		// [Пункт 03] Рефакторинг на errgroup
+		runSync(ctx, localStore, userID, accessToken, serverAddr)
+
 		fmt.Printf("Marked %s for deletion\n", entryID)
 		return nil
 	},
@@ -379,6 +393,7 @@ var deleteCmd = &cobra.Command{
 
 func main() {
 	rootCmd.AddCommand(registerCmd, loginCmd, addCmd, getCmd, listCmd, deleteCmd)
+	fmt.Printf("GophKeeper | Build: %s | Date: %s\n", buildVersion, buildDate)
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}

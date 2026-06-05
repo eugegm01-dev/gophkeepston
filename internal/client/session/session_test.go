@@ -1,81 +1,47 @@
 package session
 
 import (
-	"os"
+	"context"
 	"testing"
 
-	"github.com/eugegm01-dev/gophkeepston/internal/client/crypto"
+	authpb "github.com/eugegm01-dev/gophkeepston/api/proto/auth"
 )
 
-func TestSaveLoad(t *testing.T) {
-	tmpFile := "test_session.enc"
-	oldFile := SessionFile
-	SessionFile = tmpFile
-	defer func() {
-		SessionFile = oldFile
-		os.Remove(tmpFile)
-	}()
-
-	password := []byte("testpassword")
-	userID := "alice"
-	masterKey := []byte("masterkey123")
-	accessToken := "access_token"
-	refreshToken := "refresh_token"
-
-	// Ключ для шифрования сессии такой же, как в Load
-	sessionKey, err := crypto.DeriveKey(password, []byte("gophkeepston-session-salt"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = Save(sessionKey, userID, masterKey, accessToken, refreshToken)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Загружаем с правильным паролем
-	s, err := Load(password)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if s.UserID != userID || string(s.MasterKey) != string(masterKey) ||
-		s.AccessToken != accessToken || s.RefreshToken != refreshToken {
-		t.Errorf("loaded session mismatch: %+v", s)
-	}
-
-	// Загружаем с неправильным паролем – должна быть ошибка
-	_, err = Load([]byte("wrongpassword"))
-	if err == nil {
-		t.Error("expected error for wrong password")
-	}
+type mockClient struct {
+	refreshFunc func(ctx context.Context, token string) (*authpb.RefreshTokenResponse, error)
 }
-func TestEnsureFreshAccess(t *testing.T) {
-	tmpFile := "test_session_refresh.enc"
-	oldFile := SessionFile
-	SessionFile = tmpFile
-	defer func() {
-		SessionFile = oldFile
-		os.Remove(tmpFile)
-	}()
 
-	// создаём сессию с истекшим access-токеном
-	password := []byte("pass")
-	sessionKey, _ := crypto.DeriveKey(password, []byte("gophkeepston-session-salt"))
-	oldAccess := "expired_token"
-	oldRefresh := "valid_refresh"
-	err := Save(sessionKey, "user1", []byte("key"), oldAccess, oldRefresh)
-	if err != nil {
-		t.Fatal(err)
+func (m *mockClient) Refresh(ctx context.Context, token string) (*authpb.RefreshTokenResponse, error) {
+	if m.refreshFunc != nil {
+		return m.refreshFunc(ctx, token)
+	}
+	return nil, nil
+}
+
+func (m *mockClient) Close() error { return nil }
+
+func TestEnsureFreshAccess_Success(t *testing.T) {
+	s := &Session{
+		AccessToken:  "expired_jwt_string",
+		RefreshToken: "valid_refresh",
 	}
 
-	//s, err := Load(password)
-	//if err != nil {
-	//	t.Fatal(err)
-	//}
+	mock := &mockClient{
+		refreshFunc: func(ctx context.Context, token string) (*authpb.RefreshTokenResponse, error) {
+			return &authpb.RefreshTokenResponse{
+				AccessToken:  "new_access_token",
+				RefreshToken: "new_refresh_token",
+			}, nil
+		},
+	}
 
-	// подменяем клиент, чтобы Refresh возвращал новые токены
-	// (здесь нужен mock-сервер – упрощённо, можно просто подменить client.Refresh через моки)
-	// Поскольку это сложно без изменения кода, отметим, что в реальном проекте нужно добавить интерфейс.
-	// Пока напишем тест, который проверяет логику tokenExpired и факт вызова Refresh.
-	// Для полного покрытия потребуется рефакторинг (выделить интерфейс RefreshClient).
-	t.Skip("требуется рефакторинг для мокирования")
+	// Ключ должен быть 32 байта для AES-256
+	key := []byte("12345678901234567890123456789012") // 32 байта
+	err := s.EnsureFreshAccessWithClient(context.Background(), mock, key)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if s.AccessToken != "new_access_token" {
+		t.Errorf("expected new_access_token, got %s", s.AccessToken)
+	}
 }

@@ -33,10 +33,15 @@ func hashToken(token string) []byte {
 }
 
 func (s *AuthService) Login(ctx context.Context, req *authpb.LoginRequest) (*authpb.LoginResponse, error) {
+	// 1. Rate limit в самом начале
+	if !s.rateLimiter.Allow(req.Login) {
+		return nil, status.Error(codes.ResourceExhausted, "too many login attempts")
+	}
+
+	// 2. Один запрос к БД
 	var userID string
 	var encSecret []byte
 	var salt []byte
-
 	err := s.db.QueryRow(ctx,
 		"SELECT id, encrypted_secret, salt FROM users WHERE login=$1", req.Login).
 		Scan(&userID, &encSecret, &salt)
@@ -44,10 +49,7 @@ func (s *AuthService) Login(ctx context.Context, req *authpb.LoginRequest) (*aut
 		return nil, status.Error(codes.Unauthenticated, "invalid login")
 	}
 
-	if !s.rateLimiter.Allow(req.Login) {
-		return nil, status.Error(codes.ResourceExhausted, "too many login attempts")
-	}
-
+	// 3. Генерация токенов
 	access, err := s.jwtManager.GenerateAccessToken(userID)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "generate access token: %v", err)
@@ -57,6 +59,7 @@ func (s *AuthService) Login(ctx context.Context, req *authpb.LoginRequest) (*aut
 		return nil, status.Errorf(codes.Internal, "generate refresh token: %v", err)
 	}
 
+	// 4. Сохранение refresh токена
 	_, err = s.db.Exec(ctx, `INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at) VALUES ($1, $2, $3, $4)`,
 		uuid.New().String(), userID, hashToken(refresh), time.Now().Add(72*time.Hour))
 	if err != nil {

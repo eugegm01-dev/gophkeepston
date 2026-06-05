@@ -75,7 +75,7 @@ Godoc комментарии доступны в исходном коде.
 go test ./...
 ```
 
-Покрытие: 
+## Покрытие: 
 
 ```bash
 go test -coverprofile=coverage.out ./... && go tool cover -func=coverage.out | grep total
@@ -85,6 +85,9 @@ go test -coverprofile=coverage.out ./... && go tool cover -func=coverage.out | g
 - Соли для Argon2 в текущей версии фиксированы. В production соли должны быть уникальными для каждого пользователя.
 - JWT‑секрет задаётся через переменную окружения `JWT_SECRET`.
 
-## Лицензия
+## Сертификаты
 
-Проект учебный, лицензия не требуется.
+openssl req -x509 -newkey rsa:4096 -keyout certs/server.key -out certs/server.crt -days 365 -nodes
+
+## Лицензия
+Этот проект распространяется под лицензией MIT. Подробности см. в файле [LICENSE](LICENSE).

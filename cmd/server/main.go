@@ -56,7 +56,7 @@ func main() {
 	// 6. Запуск gRPC сервера
 	grpcServer := grpc.NewServer(
 		grpc.Creds(creds),
-		grpc.UnaryInterceptor(middleware.UnaryAuthInterceptor(jwtManager)),
+		grpc.UnaryInterceptor(middleware.UnaryAuthInterceptor(jwtManager, rateLimiter)),
 	)
 	authSvc := auth.NewAuthService(db, jwtManager, rateLimiter)
 	authpb.RegisterAuthServer(grpcServer, authSvc)

@@ -9,24 +9,26 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 )
 
-// RateLimiter защищает от брутфорса (требование безопасности)
+// RateLimiter защищает от брутфорса
 type RateLimiter struct {
 	mu       sync.Mutex
 	attempts map[string]*attempt
 	max      int
 	window   time.Duration
 }
-type contextKey string
-
-const UserIDKey contextKey = "userID"
 
 type attempt struct {
 	count int
 	first time.Time
 }
+
+type contextKey string
+
+const UserIDKey contextKey = "userID"
 
 func NewRateLimiter(max int, window time.Duration) *RateLimiter {
 	return &RateLimiter{
@@ -42,21 +44,41 @@ func (rl *RateLimiter) Allow(key string) bool {
 
 	now := time.Now()
 	a, ok := rl.attempts[key]
-	if !ok || now.Sub(a.first) > rl.window {
+
+	// Удаляем старые записи
+	if ok && now.Sub(a.first) > rl.window {
+		delete(rl.attempts, key)
+		ok = false
+	}
+
+	if !ok {
 		rl.attempts[key] = &attempt{count: 1, first: now}
 		return true
 	}
+
 	a.count++
 	return a.count <= rl.max
 }
 
-// UnaryAuthInterceptor добавляет rate-limit к auth-методам
-func UnaryAuthInterceptor(jwtManager *jwt.Manager) grpc.UnaryServerInterceptor {
+// UnaryAuthInterceptor объединяет RateLimit и JWT-валидацию
+func UnaryAuthInterceptor(jwtManager *jwt.Manager, rl *RateLimiter) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-		if info.FullMethod == "/gophkeeper.auth.Auth/Register" || info.FullMethod == "/gophkeeper.auth.Auth/Login" || info.FullMethod == "/gophkeeper.auth.Auth/RefreshToken" {
+
+		// 1. Сначала Rate Limit (защита от нагрузки до тяжелых операций)
+		p, ok := peer.FromContext(ctx)
+		if ok {
+			if !rl.Allow(p.Addr.String()) {
+				return nil, status.Error(codes.ResourceExhausted, "too many requests")
+			}
+		}
+
+		// 2. Исключаем методы, не требующие авторизации
+		if info.FullMethod == "/gophkeeper.auth.Auth/Register" ||
+			info.FullMethod == "/gophkeeper.auth.Auth/Login" {
 			return handler(ctx, req)
 		}
 
+		// 3. JWT-валидация
 		md, ok := metadata.FromIncomingContext(ctx)
 		if !ok {
 			return nil, status.Error(codes.Unauthenticated, "missing metadata")
@@ -68,7 +90,6 @@ func UnaryAuthInterceptor(jwtManager *jwt.Manager) grpc.UnaryServerInterceptor {
 		}
 
 		token := tokens[0]
-		// Убираем префикс "Bearer ", если есть
 		if len(token) > 7 && token[:7] == "Bearer " {
 			token = token[7:]
 		}
@@ -78,7 +99,8 @@ func UnaryAuthInterceptor(jwtManager *jwt.Manager) grpc.UnaryServerInterceptor {
 			return nil, status.Error(codes.Unauthenticated, "invalid token")
 		}
 
-		ctx = context.WithValue(ctx, UserIDKey, userID)
-		return handler(ctx, req)
+		// 4. Пробрасываем userID в контекст
+		newCtx := context.WithValue(ctx, UserIDKey, userID)
+		return handler(newCtx, req)
 	}
 }

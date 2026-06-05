@@ -12,7 +12,6 @@ import (
 
 	syncpb "github.com/eugegm01-dev/gophkeepston/api/proto/sync"
 	"github.com/eugegm01-dev/gophkeepston/internal/client/store"
-	"github.com/eugegm01-dev/gophkeepston/internal/sync"
 	syncpolicy "github.com/eugegm01-dev/gophkeepston/internal/sync"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -57,25 +56,6 @@ func NewClient(addr, token string) (*Client, error) {
 		sync:  syncpb.NewSyncClient(conn),
 		token: token,
 	}, nil
-}
-
-// retryWithBackoff реализует требование r п.8
-func retryWithBackoff(ctx context.Context, maxRetries int, baseDelay time.Duration, operation func(ctx context.Context) error) error {
-	var err error
-	for i := 0; i < maxRetries; i++ {
-		err = operation(ctx)
-		if err == nil {
-			return nil
-		}
-		slog.WarnContext(ctx, "operation failed, retrying", "attempt", i+1, "error", err)
-		select {
-		case <-time.After(baseDelay):
-			baseDelay *= 2
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
-	return err
 }
 
 func (c *Client) Push(ctx context.Context, entries []*syncpb.Entry) error {
@@ -129,9 +109,8 @@ func FullSync(ctx context.Context, st *store.Store, userID, token, serverAddr st
 	}
 	for _, se := range serverEntries {
 		localVer, _ := st.GetVersion(userID, se.Id)
-		localEntry := &sync.Entry{ID: se.Id, Version: localVer, UpdatedAt: 0}
-		remoteEntry := &sync.Entry{ID: se.Id, Version: se.Version, UpdatedAt: se.UpdatedAt}
-
+		localEntry := &syncpolicy.Entry{ID: se.Id, Version: localVer, UpdatedAt: 0}
+		remoteEntry := &syncpolicy.Entry{ID: se.Id, Version: se.Version, UpdatedAt: se.UpdatedAt}
 		winner, err := resolver.Resolve(localEntry, remoteEntry)
 		if err != nil {
 			continue

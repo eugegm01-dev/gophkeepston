@@ -699,7 +699,9 @@ func (m authModel) handleAuth(serverAddr string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		resp, err := client.Login(ctx, m.login)
-
+		if err != nil {
+			return errMsg{fmt.Errorf("login failed: %w", err)}
+		}
 		regKey, err := crypto.DeriveKey([]byte(m.password), []byte("gophkeepston-reg-salt"))
 		if err != nil {
 			return errMsg{fmt.Errorf("derive reg key: %w", err)}

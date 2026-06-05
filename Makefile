@@ -15,3 +15,6 @@ run-client:
 
 run-tui:
 	go run cmd/tui/main.go
+
+build:
+	go build -ldflags "-X main.buildVersion=$(VERSION) -X main.buildDate=$(shell date +%Y-%m-%d)" -o bin/gophkeeper cmd/client/main.go
