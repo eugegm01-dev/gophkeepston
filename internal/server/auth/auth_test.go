@@ -18,7 +18,7 @@ func TestRegisterAndLogin(t *testing.T) {
 	}
 	defer mock.Close()
 
-	jwtMgr := jwt.NewManager("test-secret")
+	jwtMgr := jwt.NewManager("test-secret", 15*time.Minute, 72*time.Hour)
 	rateLimiter := middleware.NewRateLimiter(5, 5*time.Minute)
 	s := NewAuthService(mock, jwtMgr, rateLimiter)
 
@@ -51,7 +51,7 @@ func TestRefreshToken(t *testing.T) {
 	}
 	defer mock.Close()
 
-	jwtMgr := jwt.NewManager("test-secret")
+	jwtMgr := jwt.NewManager("test-secret", 15*time.Minute, 72*time.Hour)
 	rateLimiter := middleware.NewRateLimiter(5, 5*time.Minute)
 	s := NewAuthService(mock, jwtMgr, rateLimiter)
 

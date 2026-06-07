@@ -508,7 +508,6 @@ func saveAndSyncCmd(m *model) tea.Cmd {
 	}
 }
 
-// ... [Остальные функции authModel, формы, renderCastle без изменений] ...
 // ===== ПОШАГОВАЯ АУТЕНТИФИКАЦИЯ =====
 
 type authStep int

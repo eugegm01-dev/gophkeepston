@@ -3,34 +3,14 @@ gophkeepston.db
 session.enc
 *.db
 
-
 # Бинарники
 gophkeeper
 tui
 server
 *.exe
-*.exetui
 coverage.out
+client
 
-server
-tui
-gophkeeper
-*.exe
-coverage.out
-gophkeepston.db
-session.enc
-certs/*.key
-certs/*.crtserver
-certs/
-tui
-gophkeeper
-tui
-coverage.out
-*.db
-certs/*.key
-certs/*.crt
-tui
-coverage.out
-*.db
+# Сертификаты (сгенерированные локально)
 certs/*.key
 certs/*.crt

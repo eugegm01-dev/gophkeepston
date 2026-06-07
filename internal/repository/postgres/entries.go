@@ -5,8 +5,6 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 // Entry представляет модель записи в БД
@@ -40,13 +38,9 @@ func (r *EntryRepository) Pull(ctx context.Context, userID string, sinceVersion 
 		var e Entry
 		if err := rows.Scan(&e.EntryID, &e.EncryptedData, &e.Version); err != nil {
 			return nil, fmt.Errorf("scan entry: %w", err)
-			if err := rows.Err(); err != nil {
-				return nil, status.Errorf(codes.Internal, "rows iteration error: %v", err)
-			}
 		}
 		entries = append(entries, e)
 	}
-
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("rows iteration: %w", err)
 	}

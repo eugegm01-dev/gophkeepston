@@ -43,8 +43,28 @@ func main() {
 	defer db.Close()
 
 	// 4. Инициализация JWT менеджера
-	jwtManager := jwt.NewManager(cfg.JWTSecret)
-	rateLimiter := middleware.NewRateLimiter(5, 5*time.Minute) // 5 попыток за 5 минут
+	jwtManager := jwt.NewManager(cfg.JWTSecret, cfg.AccessTokenTTL, cfg.RefreshTokenTTL)
+	rateLimiter := middleware.NewRateLimiter(5, 5*time.Minute)
+	if cfg.DatabaseDSN == "" {
+		slog.Error("DATABASE_DSN is required")
+		os.Exit(1)
+	}
+	if cfg.JWTSecret == "" {
+		slog.Error("JWT_SECRET is required")
+		os.Exit(1)
+	}
+	if cfg.AccessTokenTTL <= 0 || cfg.RefreshTokenTTL <= 0 {
+		slog.Error("JWT TTLs must be positive")
+		os.Exit(1)
+	}
+	if _, err := os.Stat(cfg.TLSCertPath); err != nil {
+		slog.Error("TLS certificate not found", "path", cfg.TLSCertPath)
+		os.Exit(1)
+	}
+	if _, err := os.Stat(cfg.TLSKeyPath); err != nil {
+		slog.Error("TLS key not found", "path", cfg.TLSKeyPath)
+		os.Exit(1)
+	}
 
 	// 5. Инициализация TLS
 	creds, err := credentials.NewServerTLSFromFile(cfg.TLSCertPath, cfg.TLSKeyPath)

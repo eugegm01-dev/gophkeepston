@@ -50,7 +50,7 @@ func requireSession(cmd *cobra.Command, args []string) error {
 	}
 	userID = s.UserID
 	masterKey = s.MasterKey
-	accessToken = s.AccessToken
+	// Не присваиваем accessToken сразу, а возьмём после возможного refresh
 	localStore, err = store.NewStore("gophkeepston.db")
 	if err != nil {
 		return fmt.Errorf("open store: %w", err)
@@ -65,6 +65,8 @@ func requireSession(cmd *cobra.Command, args []string) error {
 	if err := s.EnsureFreshAccess(ctx, serverAddr, sessionKey); err != nil {
 		return fmt.Errorf("refresh session: %w", err)
 	}
+	// После возможного обновления берём актуальный токен
+	accessToken = s.AccessToken
 
 	ctxSync, cancelSync := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancelSync()
@@ -152,7 +154,6 @@ var loginCmd = &cobra.Command{
 			return fmt.Errorf("login: %w", err)
 		}
 
-		// Исправлено: DeriveKey возвращает два значения
 		regKey, err := crypto.DeriveKey(password, []byte("gophkeepston-reg-salt"))
 		if err != nil {
 			return fmt.Errorf("derive reg key: %w", err)
@@ -162,7 +163,7 @@ var loginCmd = &cobra.Command{
 			return fmt.Errorf("invalid master password: %w", err)
 		}
 
-		masterKey, err := crypto.DeriveKey(append(secret, password...), []byte("gophkeepston-master-salt"))
+		masterKey, err := crypto.DeriveKey(append(secret, password...), resp.Salt)
 		if err != nil {
 			return fmt.Errorf("derive master key: %w", err)
 		}
@@ -173,7 +174,7 @@ var loginCmd = &cobra.Command{
 			return fmt.Errorf("open store: %w", err)
 		}
 
-		sessionKey, err := crypto.DeriveKey(password, []byte("gophkeepston-session-salt"))
+		sessionKey, err := crypto.DeriveKey(append(secret, password...), resp.Salt)
 		if err != nil {
 			return fmt.Errorf("derive session key: %w", err)
 		}

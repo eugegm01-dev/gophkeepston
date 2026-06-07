@@ -6,7 +6,8 @@ gen-proto:
 run-migrations:
 	docker compose exec -T postgres psql -U gophkeepston -d gophkeepston < migrations/001_init.sql
 	docker compose exec -T postgres psql -U gophkeepston -d gophkeepston < migrations/002_entries.sql
-
+	docker compose exec -T postgres psql -U gophkeepston -d gophkeepston < migrations/003_add_salt.sql
+	
 run-server:
 	go run cmd/server/main.go
 

@@ -115,7 +115,6 @@ func FullSync(ctx context.Context, st *store.Store, userID, token, serverAddr st
 		if err != nil {
 			continue
 		}
-		// удалить строки с json.Unmarshal и probe – они не нужны
 		if winner == remoteEntry {
 			if err := st.Put(userID, se.Id, se.EncryptedData); err != nil {
 				return err
@@ -131,7 +130,7 @@ func FullSync(ctx context.Context, st *store.Store, userID, token, serverAddr st
 	}
 	for _, id := range ids {
 		localVer, err := st.GetVersion(userID, id)
-		if err != nil || localVer == 0 {
+		if err != nil || localVer == 0 || localVer == -1 {
 			continue
 		}
 		data, err := st.Get(userID, id)
@@ -163,11 +162,11 @@ func FullSync(ctx context.Context, st *store.Store, userID, token, serverAddr st
 
 	// 3. DELETE
 	for _, id := range ids {
-		ver, _ := st.GetVersion(userID, id)
-		if ver != -1 {
+		localVer, err := st.GetVersion(userID, id)
+		if err != nil || localVer != -1 {
 			continue
 		}
-		if err := cli.Delete(ctx, id, ver); err != nil {
+		if err := cli.Delete(ctx, id, localVer); err != nil {
 			continue
 		}
 		_ = st.Delete(userID, id)

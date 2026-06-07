@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/eugegm01-dev/gophkeepston/internal/server/middleware"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -85,6 +87,10 @@ func (s *AuthService) Register(ctx context.Context, req *authpb.RegisterRequest)
 		`INSERT INTO users (id, login, encrypted_secret, salt) VALUES ($1, $2, $3, $4)`,
 		id, req.Login, req.EncryptedSecret, salt)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" { // unique violation
+			return nil, status.Error(codes.AlreadyExists, "login already taken")
+		}
 		return nil, status.Errorf(codes.Internal, "register: %v", err)
 	}
 	return &authpb.RegisterResponse{UserId: id}, nil

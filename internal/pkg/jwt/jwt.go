@@ -11,19 +11,25 @@ import (
 
 // Manager handles JWT creation and validation.
 type Manager struct {
-	secret []byte
+	secret     []byte
+	accessTTL  time.Duration
+	refreshTTL time.Duration
 }
 
 // NewManager creates a Manager with the given secret.
-func NewManager(secret string) *Manager {
-	return &Manager{secret: []byte(secret)}
+func NewManager(secret string, accessTTL, refreshTTL time.Duration) *Manager {
+	return &Manager{
+		secret:     []byte(secret),
+		accessTTL:  accessTTL,
+		refreshTTL: refreshTTL,
+	}
 }
 
 // GenerateAccessToken creates a new access token valid for 15 minutes.
 func (m *Manager) GenerateAccessToken(userID string) (string, error) {
 	claims := jwt.MapClaims{
 		"sub": userID,
-		"exp": time.Now().Add(15 * time.Minute).Unix(),
+		"exp": time.Now().Add(m.accessTTL).Unix(),
 		"iat": time.Now().Unix(),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -34,7 +40,7 @@ func (m *Manager) GenerateAccessToken(userID string) (string, error) {
 func (m *Manager) GenerateRefreshToken(userID string) (string, error) {
 	claims := jwt.MapClaims{
 		"sub": userID,
-		"exp": time.Now().Add(72 * time.Hour).Unix(),
+		"exp": time.Now().Add(m.refreshTTL).Unix(),
 		"iat": time.Now().Unix(),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)

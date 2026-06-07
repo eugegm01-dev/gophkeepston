@@ -19,6 +19,42 @@ type RateLimiter struct {
 	attempts map[string]*attempt
 	max      int
 	window   time.Duration
+	stopCh   chan struct{}
+}
+
+func NewRateLimiter(max int, window time.Duration) *RateLimiter {
+	rl := &RateLimiter{
+		attempts: make(map[string]*attempt),
+		max:      max,
+		window:   window,
+		stopCh:   make(chan struct{}),
+	}
+	go rl.cleanupLoop()
+	return rl
+}
+
+func (rl *RateLimiter) cleanupLoop() {
+	ticker := time.NewTicker(rl.window)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			rl.mu.Lock()
+			now := time.Now()
+			for key, a := range rl.attempts {
+				if now.Sub(a.first) > rl.window {
+					delete(rl.attempts, key)
+				}
+			}
+			rl.mu.Unlock()
+		case <-rl.stopCh:
+			return
+		}
+	}
+}
+
+func (rl *RateLimiter) Stop() {
+	close(rl.stopCh)
 }
 
 type attempt struct {
@@ -28,14 +64,11 @@ type attempt struct {
 
 type contextKey string
 
-const UserIDKey contextKey = "userID"
+const userIDKey contextKey = "userID"
 
-func NewRateLimiter(max int, window time.Duration) *RateLimiter {
-	return &RateLimiter{
-		attempts: make(map[string]*attempt),
-		max:      max,
-		window:   window,
-	}
+func UserIDFromContext(ctx context.Context) (string, bool) {
+	id, ok := ctx.Value(userIDKey).(string)
+	return id, ok
 }
 
 func (rl *RateLimiter) Allow(key string) bool {
@@ -100,7 +133,7 @@ func UnaryAuthInterceptor(jwtManager *jwt.Manager, rl *RateLimiter) grpc.UnarySe
 		}
 
 		// 4. Пробрасываем userID в контекст
-		newCtx := context.WithValue(ctx, UserIDKey, userID)
+		newCtx := context.WithValue(ctx, userIDKey, userID)
 		return handler(newCtx, req)
 	}
 }

@@ -2,10 +2,11 @@ package jwt
 
 import (
 	"testing"
+	"time"
 )
 
 func TestGenerateAndValidate(t *testing.T) {
-	m := NewManager("test-secret")
+	m := NewManager("test-secret", 15*time.Minute, 72*time.Hour)
 	userID := "user123"
 
 	access, err := m.GenerateAccessToken(userID)
@@ -34,7 +35,7 @@ func TestGenerateAndValidate(t *testing.T) {
 }
 
 func TestExpiredToken(t *testing.T) {
-	m := NewManager("secret")
+	m := NewManager("secret", 15*time.Minute, 72*time.Hour)
 	// Проверяем, что валидатор отвергает заведомо невалидный токен
 	badToken := "bad.token.here"
 	_, err := m.ValidateToken(badToken)

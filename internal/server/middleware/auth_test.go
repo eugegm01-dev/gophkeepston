@@ -13,13 +13,14 @@ import (
 )
 
 func TestUnaryAuthInterceptor(t *testing.T) {
-	mngr := jwt.NewManager("test-secret")
+	mngr := jwt.NewManager("test-secret", 15*time.Minute, 72*time.Hour)
 	// Инициализируем RateLimiter для теста (с большими лимитами, чтобы не блокировал тест)
 	rl := NewRateLimiter(100, time.Minute)
 	interceptor := UnaryAuthInterceptor(mngr, rl)
 
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return ctx.Value(UserIDKey), nil
+		id, _ := UserIDFromContext(ctx)
+		return id, nil
 	}
 
 	// 1. Без метаданных

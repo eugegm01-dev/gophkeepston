@@ -21,7 +21,7 @@ func NewSyncService(db *pgxpool.Pool) *SyncService {
 }
 
 func (s *SyncService) Push(ctx context.Context, req *syncpb.PushRequest) (*syncpb.PushResponse, error) {
-	userID, ok := ctx.Value(middleware.UserIDKey).(string)
+	userID, ok := middleware.UserIDFromContext(ctx)
 	if !ok {
 		return nil, status.Error(codes.Unauthenticated, "user_id not found")
 	}
@@ -47,7 +47,7 @@ func (s *SyncService) Push(ctx context.Context, req *syncpb.PushRequest) (*syncp
 }
 
 func (s *SyncService) Pull(ctx context.Context, req *syncpb.PullRequest) (*syncpb.PullResponse, error) {
-	userID, ok := ctx.Value(middleware.UserIDKey).(string)
+	userID, ok := middleware.UserIDFromContext(ctx)
 	if !ok {
 		return nil, status.Error(codes.Unauthenticated, "user_id not found")
 	}
@@ -82,7 +82,7 @@ func (s *SyncService) Pull(ctx context.Context, req *syncpb.PullRequest) (*syncp
 }
 
 func (s *SyncService) Delete(ctx context.Context, req *syncpb.DeleteRequest) (*syncpb.DeleteResponse, error) {
-	userID, ok := ctx.Value(middleware.UserIDKey).(string)
+	userID, ok := middleware.UserIDFromContext(ctx)
 	if !ok {
 		return nil, status.Error(codes.Unauthenticated, "user_id not found")
 	}
@@ -94,10 +94,8 @@ func (s *SyncService) Delete(ctx context.Context, req *syncpb.DeleteRequest) (*s
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "delete entry: %v", err)
 	}
-
 	if result.RowsAffected() == 0 {
-		return &syncpb.DeleteResponse{}, nil
+		return nil, status.Error(codes.FailedPrecondition, "entry version mismatch or not found")
 	}
-
 	return &syncpb.DeleteResponse{}, nil
 }
