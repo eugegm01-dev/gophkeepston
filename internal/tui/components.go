@@ -16,6 +16,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/term"
 	"github.com/pquerna/otp/totp"
 
 	"github.com/eugegm01-dev/gophkeepston/internal/client/authclient"
@@ -47,10 +48,27 @@ var (
 			Padding(0, 1)
 
 	infoStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#626262")).
+			Foreground(lipgloss.Color("#888888")).
 			Italic(true)
 
-	docStyle = lipgloss.NewStyle().Margin(1, 2)
+	// Основной стиль dungeon – тёмный фон с каменной рамкой
+	dungeonStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#555555")).
+			Background(lipgloss.Color("#1a1a2e")).
+			Foreground(lipgloss.Color("#c0c0c0")).
+			Padding(1, 2)
+
+	// Заголовок внутри dungeon
+	headerStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#FFD700")).
+			Background(lipgloss.Color("#333333")).
+			Padding(0, 2)
+
+	torch  = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFA500"))
+	stone  = lipgloss.NewStyle().Foreground(lipgloss.Color("#808080"))
+	shadow = lipgloss.NewStyle().Foreground(lipgloss.Color("#333333"))
 )
 
 type screen int
@@ -118,7 +136,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		if m.list.Items() != nil {
-			m.list.SetSize(msg.Width-5, msg.Height-10)
+			m.list.SetSize(msg.Width-8, msg.Height-14)
 		}
 		return m, nil
 
@@ -141,8 +159,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case entriesLoadedMsg:
 		items := make([]list.Item, len(msg.entries))
 		copy(items, msg.entries)
-		m.list = list.New(items, list.NewDefaultDelegate(), m.width-5, m.height-10)
-		m.list.Title = "Entries"
+		m.list = list.New(items, list.NewDefaultDelegate(), m.width-8, m.height-14)
+		m.list.Title = ""
 		return m, nil
 
 	case PasswordEntry:
@@ -223,18 +241,48 @@ func (m *model) View() string {
 	if m.err != nil {
 		return errorStyle.Render(fmt.Sprintf("Error: %v", m.err)) + "\n\nPress esc to go back."
 	}
+
 	switch m.screen {
 	case screenAuth:
 		return m.authScreen.View()
 	case screenList:
-		return docStyle.Render(m.list.View() + "\n" + m.helpView())
+		header := headerStyle.Render(" Vault ")
+		help := m.helpView()
+		content := lipgloss.JoinVertical(lipgloss.Left,
+			header,
+			m.list.View(),
+			help,
+		)
+		return dungeonStyle.
+			Width(m.width - 4).Height(m.height - 4).
+			Render(content)
 	case screenView:
-		return m.viewEntryView()
+		header := headerStyle.Render(" Scroll ")
+		body := m.viewEntryView()
+		help := infoStyle.Render("esc: back")
+		content := lipgloss.JoinVertical(lipgloss.Left, header, body, help)
+		return dungeonStyle.
+			Width(m.width - 4).Height(m.height - 4).
+			Render(content)
 	case screenAdd:
 		if m.addForm != nil {
-			return m.addForm.View()
+			header := headerStyle.Render(" Add Entry ")
+			content := lipgloss.JoinVertical(lipgloss.Left, header, m.addForm.View())
+			return dungeonStyle.
+				Width(m.width - 4).Height(m.height - 4).
+				Render(content)
 		}
 		return "Loading form..."
+<<<<<<< feature/docs-and-polish
+	case screenChooseType:
+		header := headerStyle.Render(" Choose Type ")
+		body := "p: password\nt: text\nc: card\nb: binary\n\nesc: back"
+		content := lipgloss.JoinVertical(lipgloss.Left, header, body)
+		return dungeonStyle.
+			Width(m.width - 4).Height(m.height - 4).
+			Render(content)
+=======
+>>>>>>> main
 	}
 	return ""
 }
@@ -244,6 +292,51 @@ func (m *model) helpView() string {
 }
 
 func (m *model) viewEntryView() string {
+<<<<<<< feature/docs-and-polish
+	if m.viewingData == nil {
+		return "No data"
+	}
+	var typeCheck struct{ Type string }
+	if err := json.Unmarshal(m.viewingData, &typeCheck); err != nil {
+		return "Error parsing entry"
+	}
+	var content string
+	switch typeCheck.Type {
+	case "password":
+		var e PasswordEntry
+		if err := json.Unmarshal(m.viewingData, &e); err == nil {
+			otpCode := ""
+			if e.IsOTP && e.OTPSecret != "" {
+				code, err := totp.GenerateCode(e.OTPSecret, time.Now())
+				if err == nil {
+					otpCode = fmt.Sprintf("\nOTP: %s (valid %d seconds)", code, 30-time.Now().Second()%30)
+				}
+			}
+			content = fmt.Sprintf("Site: %s\nLogin: %s\nPassword: %s\nMeta: %s%s",
+				e.Site, e.Login, e.Password, e.Meta, otpCode)
+		}
+	case "text":
+		var e TextEntry
+		if err := json.Unmarshal(m.viewingData, &e); err == nil {
+			content = fmt.Sprintf("Title: %s\nContent: %s\nMeta: %s", e.Title, e.Content, e.Meta)
+		}
+	case "card":
+		var e CardEntry
+		if err := json.Unmarshal(m.viewingData, &e); err == nil {
+			content = fmt.Sprintf("Number: %s\nExpiry: %s\nCVV: %s\nHolder: %s\nMeta: %s",
+				e.Number, e.Expiry, e.CVV, e.Holder, e.Meta)
+		}
+	case "binary":
+		var e BinaryEntry
+		if err := json.Unmarshal(m.viewingData, &e); err == nil {
+			content = fmt.Sprintf("File: %s\nSize: %d bytes\nMeta: %s",
+				e.FileName, len(e.Data), e.Meta)
+		}
+	default:
+		content = "Unknown entry type"
+	}
+	return content
+=======
 	e := m.viewingData
 	otpCode := ""
 	if e.IsOTP && e.OTPSecret != "" {
@@ -257,6 +350,7 @@ func (m *model) viewEntryView() string {
 		e.Site, e.Login, e.Password, e.Meta, otpCode,
 		infoStyle.Render("esc: back"),
 	))
+>>>>>>> main
 }
 
 // ===== КОМАНДЫ =====
@@ -320,6 +414,115 @@ func saveEntryCmd(m *model) tea.Cmd {
 		if form == nil {
 			return errMsg{fmt.Errorf("form is nil")}
 		}
+<<<<<<< feature/docs-and-polish
+		switch m.addingType {
+		case "password":
+			site := form.GetString("site")
+			login := form.GetString("login")
+			password := form.GetString("password")
+			meta := form.GetString("meta")
+			isOTP := form.GetBool("is_otp")
+			otpSecret := form.GetString("otp_secret")
+
+			if site == "" || login == "" || password == "" {
+				return errMsg{fmt.Errorf("site, login and password are required")}
+			}
+			entry := PasswordEntry{
+				Type:      "password",
+				Site:      site,
+				Login:     login,
+				Password:  password,
+				Meta:      meta,
+				IsOTP:     isOTP,
+				OTPSecret: otpSecret,
+			}
+			plain, _ := json.Marshal(entry)
+			ciphertext, err := crypto.Encrypt(plain, m.masterKey)
+			if err != nil {
+				return errMsg{err}
+			}
+			entryID := fmt.Sprintf("%s-%d", site, time.Now().UnixNano())
+			if err := m.store.Put(m.session.UserID, entryID, ciphertext); err != nil {
+				return errMsg{err}
+			}
+		case "text":
+			title := form.GetString("title")
+			content := form.GetString("content")
+			meta := form.GetString("meta")
+
+			if title == "" || content == "" {
+				return errMsg{fmt.Errorf("title and content are required")}
+			}
+			entry := TextEntry{
+				Type:    "text",
+				Title:   title,
+				Content: content,
+				Meta:    meta,
+			}
+			plain, _ := json.Marshal(entry)
+			ciphertext, err := crypto.Encrypt(plain, m.masterKey)
+			if err != nil {
+				return errMsg{err}
+			}
+			entryID := fmt.Sprintf("text-%d", time.Now().UnixNano())
+			if err := m.store.Put(m.session.UserID, entryID, ciphertext); err != nil {
+				return errMsg{err}
+			}
+		case "card":
+			number := form.GetString("number")
+			expiry := form.GetString("expiry")
+			cvv := form.GetString("cvv")
+			holder := form.GetString("holder")
+			meta := form.GetString("meta")
+
+			if number == "" || expiry == "" || cvv == "" {
+				return errMsg{fmt.Errorf("number, expiry and cvv are required")}
+			}
+			entry := CardEntry{
+				Type:   "card",
+				Number: number,
+				Expiry: expiry,
+				CVV:    cvv,
+				Holder: holder,
+				Meta:   meta,
+			}
+			plain, _ := json.Marshal(entry)
+			ciphertext, err := crypto.Encrypt(plain, m.masterKey)
+			if err != nil {
+				return errMsg{err}
+			}
+			entryID := fmt.Sprintf("card-%d", time.Now().UnixNano())
+			if err := m.store.Put(m.session.UserID, entryID, ciphertext); err != nil {
+				return errMsg{err}
+			}
+		case "binary":
+			path := form.GetString("path")
+			meta := form.GetString("meta")
+			if path == "" {
+				return errMsg{fmt.Errorf("file path required")}
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return errMsg{err}
+			}
+			fileName := filepath.Base(path)
+			entry := BinaryEntry{
+				Type:     "binary",
+				FileName: fileName,
+				Data:     data,
+				Meta:     meta,
+			}
+			plain, _ := json.Marshal(entry)
+			ciphertext, err := crypto.Encrypt(plain, m.masterKey)
+			if err != nil {
+				return errMsg{err}
+			}
+			entryID := fmt.Sprintf("binary-%d", time.Now().UnixNano())
+			if err := m.store.Put(m.session.UserID, entryID, ciphertext); err != nil {
+				return errMsg{err}
+			}
+
+=======
 		site := form.GetString("site")
 		login := form.GetString("login")
 		password := form.GetString("password")
@@ -329,7 +532,11 @@ func saveEntryCmd(m *model) tea.Cmd {
 
 		if site == "" || login == "" || password == "" {
 			return errMsg{fmt.Errorf("site, login and password are required")}
+>>>>>>> main
 		}
+		go func() {
+			_ = syncclient.FullSync(m.store, m.session.UserID, m.session.AccessToken, m.serverAddr)
+		}()
 
 		entry := PasswordEntry{
 			Site:      site,
@@ -498,21 +705,21 @@ func (m authModel) View() string {
 		if m.err != nil {
 			s = errorStyle.Render(fmt.Sprintf("Error: %v", m.err)) + "\n\n" + s
 		}
-		return docStyle.Render(s)
+		return s
 	case stepEnterLogin:
 		s := "Enter login:\n\n" + m.loginInput.View()
 		s += "\n\nenter: next  esc: back"
 		if m.err != nil {
 			s = errorStyle.Render(fmt.Sprintf("Error: %v", m.err)) + "\n\n" + s
 		}
-		return docStyle.Render(s)
+		return s
 	case stepEnterPassword:
 		s := "Enter master password:\n\n" + m.passwordInput.View()
 		s += "\n\nenter: login  esc: back"
 		if m.err != nil {
 			s = errorStyle.Render(fmt.Sprintf("Error: %v", m.err)) + "\n\n" + s
 		}
-		return docStyle.Render(s)
+		return s
 	case stepAuthenticating:
 		return "Authenticating..."
 	}
@@ -609,3 +816,111 @@ func newAddForm() *huh.Form {
 		),
 	).WithTheme(huh.ThemeBase())
 }
+<<<<<<< feature/docs-and-polish
+
+func newCardForm() *huh.Form {
+	number := ""
+	expiry := ""
+	cvv := ""
+	holder := ""
+	meta := ""
+	return huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().
+				Key("number").
+				Title("Card number (16 digits)").
+				Value(&number).
+				Validate(func(s string) error {
+					if len(s) != 16 {
+						return fmt.Errorf("must be 16 digits")
+					}
+					for _, c := range s {
+						if c < '0' || c > '9' {
+							return fmt.Errorf("only digits allowed")
+						}
+					}
+					return nil
+				}),
+			huh.NewInput().
+				Key("expiry").
+				Title("Expiry (MM/YY)").
+				Value(&expiry).
+				Validate(func(s string) error {
+					if len(s) != 5 || s[2] != '/' {
+						return fmt.Errorf("format MM/YY")
+					}
+					return nil
+				}),
+			huh.NewInput().
+				Key("cvv").
+				Title("CVV (3 digits)").
+				EchoMode(huh.EchoModePassword).
+				Value(&cvv).
+				Validate(func(s string) error {
+					if len(s) != 3 {
+						return fmt.Errorf("must be 3 digits")
+					}
+					for _, c := range s {
+						if c < '0' || c > '9' {
+							return fmt.Errorf("only digits")
+						}
+					}
+					return nil
+				}),
+			huh.NewInput().Key("holder").Title("Holder name").Value(&holder),
+			huh.NewInput().Key("meta").Title("Meta (optional)").Value(&meta),
+		),
+	).WithTheme(huh.ThemeBase())
+}
+
+func newBinaryForm() *huh.Form {
+	path := ""
+	meta := ""
+	return huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().Key("path").Title("File path").Value(&path),
+			huh.NewInput().Key("meta").Title("Meta (optional)").Value(&meta),
+		),
+	).WithTheme(huh.ThemeBase())
+}
+
+func renderCastle() string {
+	sky := lipgloss.NewStyle().Background(lipgloss.Color("#1E90FF"))
+	sun := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD700"))
+	stone := lipgloss.NewStyle().Foreground(lipgloss.Color("#808080"))
+	dragon := lipgloss.NewStyle().Foreground(lipgloss.Color("#FF5555"))
+	knight := lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00"))
+	gold := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD700"))
+	grass := lipgloss.NewStyle().Foreground(lipgloss.Color("#228B22"))
+
+	// Ширина замка 80 символов, адаптируем под любой терминал
+	width := 80
+	if termWidth, _, err := term.GetSize(0); err == nil {
+		if termWidth > 0 {
+			width = termWidth
+		}
+	}
+
+	// Сцена с рыцарем, драконом и замком
+	scene := lipgloss.JoinVertical(lipgloss.Left,
+		sky.Render(strings.Repeat(" ", width)),
+		sky.Render("                     "+sun.Render("  \\   /  ")+"                                    "),
+		sky.Render("                      "+sun.Render(".-- ☀ --.")+"                                    "),
+		sky.Render("                     "+sun.Render("  /   \\  ")+"                                    "),
+		sky.Render(strings.Repeat(" ", width)),
+		stone.Render("        ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄        "),
+		stone.Render("      ██  ██  ██  "+knight.Render(" ██  ██  ")+stone.Render("██  ██  ██  ██  ")),
+		stone.Render("      ██  ██  ██  "+knight.Render(" ██  ██  ")+stone.Render("██  ██  ██  ██  ")),
+		stone.Render("      ██  ██  ██                  ██  ██  ██  ██  "),
+		stone.Render("   ▄▄▄██▄▄██▄▄██▄▄▄▄▄▄▄▄▄▄▄▄▄▄██▄▄██▄▄██▄▄██   "),
+		stone.Render("   ██████████████████████████████████████████████   "),
+		gold.Render("   ███  ███  ██████████████████  ███  ███  ███   "),
+		gold.Render("   ███  ███  ██████████████████  ███  ███  ███   "),
+		dragon.Render("   ███  ███  ██████████████████  ███  ███  ███   "),
+		grass.Render("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"),
+	)
+
+	return lipgloss.NewStyle().MaxWidth(width).Render(scene)
+}
+=======
+>>>>>>> main

@@ -1,3 +1,4 @@
+// Package authclient provides a gRPC client for the Auth service.
 package authclient
 
 import (
@@ -9,11 +10,13 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
+// Client is a gRPC client for authentication operations.
 type Client struct {
 	conn *grpc.ClientConn
 	auth authpb.AuthClient
 }
 
+// NewClient creates a new auth client connected to the given address.
 func NewClient(addr string) (*Client, error) {
 	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
@@ -25,6 +28,7 @@ func NewClient(addr string) (*Client, error) {
 	}, nil
 }
 
+// Register sends a registration request and returns the new user ID.
 func (c *Client) Register(ctx context.Context, login string, encSecret []byte) (string, error) {
 	resp, err := c.auth.Register(ctx, &authpb.RegisterRequest{
 		Login:           login,
@@ -36,10 +40,12 @@ func (c *Client) Register(ctx context.Context, login string, encSecret []byte) (
 	return resp.UserId, nil
 }
 
+// Login authenticates a user and returns tokens.
 func (c *Client) Login(ctx context.Context, login string) (*authpb.LoginResponse, error) {
 	return c.auth.Login(ctx, &authpb.LoginRequest{Login: login})
 }
 
+// Refresh refreshes an access token using a refresh token.
 func (c *Client) Refresh(ctx context.Context, refreshToken string) (*authpb.RefreshTokenResponse, error) {
 	return c.auth.RefreshToken(ctx, &authpb.RefreshTokenRequest{RefreshToken: refreshToken})
 }

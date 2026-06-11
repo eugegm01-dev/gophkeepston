@@ -1,8 +1,11 @@
+// Package auth implements the gRPC Auth service (Register/Login/RefreshToken).
+// It uses PostgreSQL for user storage and JWT for token generation.
 package auth
 
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	authpb "github.com/eugegm01-dev/gophkeepston/api/proto/auth"
 	"github.com/eugegm01-dev/gophkeepston/internal/pkg/jwt"
@@ -11,12 +14,14 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// AuthService implements the Auth gRPC server.
 type AuthService struct {
 	authpb.UnimplementedAuthServer
 	db         *sql.DB
 	jwtManager *jwt.Manager
 }
 
+// NewAuthService creates an AuthService with a database connection and JWT secret.
 func NewAuthService(db *sql.DB, jwtSecret string) *AuthService {
 	return &AuthService{
 		db:         db,
@@ -24,6 +29,7 @@ func NewAuthService(db *sql.DB, jwtSecret string) *AuthService {
 	}
 }
 
+// Register registers a new user.
 func (s *AuthService) Register(ctx context.Context, req *authpb.RegisterRequest) (*authpb.RegisterResponse, error) {
 	id := uuid.New().String()
 	_, err := s.db.Exec("INSERT INTO users (id, login, encrypted_secret) VALUES ($1, $2, $3)",
@@ -34,6 +40,7 @@ func (s *AuthService) Register(ctx context.Context, req *authpb.RegisterRequest)
 	return &authpb.RegisterResponse{UserId: id}, nil
 }
 
+// Login authenticates a user and returns tokens.
 func (s *AuthService) Login(ctx context.Context, req *authpb.LoginRequest) (*authpb.LoginResponse, error) {
 	var userID string
 	var encSecret []byte
@@ -45,10 +52,34 @@ func (s *AuthService) Login(ctx context.Context, req *authpb.LoginRequest) (*aut
 	}
 	access, _ := s.jwtManager.GenerateAccessToken(userID)
 	refresh, _ := s.jwtManager.GenerateRefreshToken(userID)
-	// Сохраняем refresh token в БД (можно добавить таблицу refresh_tokens)
+
+	// Сохраняем refresh-токен в БД
+	_, err = s.db.Exec(`INSERT INTO refresh_tokens (id, user_id, token, expires_at) VALUES ($1, $2, $3, $4)`,
+		uuid.New().String(), userID, refresh, time.Now().Add(72*time.Hour))
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "save refresh token: %v", err)
+	}
+
 	return &authpb.LoginResponse{
 		EncryptedSecret: encSecret,
 		AccessToken:     access,
 		RefreshToken:    refresh,
 	}, nil
+}
+
+func (s *AuthService) RefreshToken(ctx context.Context, req *authpb.RefreshTokenRequest) (*authpb.RefreshTokenResponse, error) {
+	// Проверяем refresh-токен в БД (можно просто провалидировать как JWT)
+	var userID string
+	err := s.db.QueryRow(`SELECT user_id FROM refresh_tokens WHERE token = $1 AND expires_at > now()`, req.RefreshToken).Scan(&userID)
+	if err != nil {
+		return nil, status.Error(codes.Unauthenticated, "invalid or expired refresh token")
+	}
+
+	// Генерируем новый access-токен
+	access, err := s.jwtManager.GenerateAccessToken(userID)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "generate access: %v", err)
+	}
+
+	return &authpb.RefreshTokenResponse{AccessToken: access}, nil
 }

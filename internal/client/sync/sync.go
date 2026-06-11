@@ -1,7 +1,10 @@
+// Package sync implements client-side data synchronization with the server.
+// It provides Push/Pull operations and a FullSync function for initial sync.
 package sync
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -14,12 +17,14 @@ import (
 
 var NewClientFunc = NewClient
 
+// Client is a gRPC-based sync client.
 type Client struct {
 	conn  *grpc.ClientConn
 	sync  syncpb.SyncClient
 	token string
 }
 
+// NewClient creates a new sync client connected to the given address.
 func NewClient(addr, token string) (*Client, error) {
 	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
@@ -32,6 +37,7 @@ func NewClient(addr, token string) (*Client, error) {
 	}, nil
 }
 
+// Push sends encrypted entries to the server.
 func (c *Client) Push(ctx context.Context, entries []*syncpb.Entry) error {
 	md := metadata.Pairs("authorization", "Bearer "+c.token)
 	ctx = metadata.NewOutgoingContext(ctx, md)
@@ -40,6 +46,7 @@ func (c *Client) Push(ctx context.Context, entries []*syncpb.Entry) error {
 	return err
 }
 
+// Pull retrieves new entries from the server since a given version.
 func (c *Client) Pull(ctx context.Context, sinceVersion int64) ([]*syncpb.Entry, error) {
 	md := metadata.Pairs("authorization", "Bearer "+c.token)
 	ctx = metadata.NewOutgoingContext(ctx, md)
@@ -55,8 +62,7 @@ func (c *Client) Close() error {
 	return c.conn.Close()
 }
 
-// Sync выполняет полную синхронизацию: отправляет локальные изменения и получает новые с сервера.
-// Возвращает список полученных Entry для обновления локального хранилища.
+// FullSync performs a full two-way sync: uploads local entries and downloads new server entries.
 func FullSync(st *store.Store, userID string, token string, serverAddr string) error {
 	cli, err := NewClientFunc(serverAddr, token)
 	if err != nil {
@@ -64,64 +70,67 @@ func FullSync(st *store.Store, userID string, token string, serverAddr string) e
 	}
 	defer cli.Close()
 
-	// 1. Получаем все локальные ID и их версии
+	// Получаем максимальную локальную версию (можно хранить в отдельной записи или вычислять)
+	maxLocalVersion := getMaxLocalVersion(st, userID)
+
+	// Pull
+	serverEntries, err := cli.Pull(context.Background(), maxLocalVersion)
+	if err != nil {
+		return err
+	}
+	for _, se := range serverEntries {
+		// Если локально нет или версия сервера новее – сохраняем
+		localData, err := st.Get(userID, se.Id)
+		if err != nil || getVersion(localData) < se.Version {
+			st.Put(userID, se.Id, se.EncryptedData)
+		}
+	}
+
+	// Push – отправляем только изменённые локальные записи
 	localIDs, err := st.List(userID)
 	if err != nil {
 		return err
 	}
-
-	// Для простоты будем считать, что локально храним версию внутри зашифрованной записи (расшифровываем, извлекаем версию)
-	// Но мы ещё не хранили версию в локальной структуре. Поэтому сейчас сделаем так:
-	// При Pull будем получать все записи сервера и сравнивать с локальными по ID.
-	// Реализуем по-простому: Pull запрашиваем sinceVersion = 0 всегда, получаем все записи сервера.
-	// Затем для каждой записи с сервера: если локально нет – добавляем; если есть и версия сервера > локальной – обновляем.
-	// Для Push соберём все локальные записи, которые новее серверных (сравним версии). Пока для простоты возьмём все локальные записи и отправим на сервер с версией, хранящейся в метаданных (добавим версию в зашифрованную структуру).
-	// Это временное решение, потом можно оптимизировать.
-
-	// 2. Получаем все записи с сервера
-	serverEntries, err := cli.Pull(context.Background(), 0)
-	if err != nil {
-		return err
-	}
-
-	// 3. Обновляем локальное хранилище серверными записями (пропускаем расшифровку, просто сохраняем зашифрованные данные)
-	for _, se := range serverEntries {
-		// Проверяем, есть ли локально запись с таким ID
-		localData, err := st.Get(userID, se.Id)
-		if err != nil {
-			// Нет локально – просто добавляем
-			if err := st.Put(userID, se.Id, se.EncryptedData); err != nil {
-				return err
-			}
-		} else {
-			// Есть локально – сравниваем версии (версия хранится внутри зашифрованной записи? Мы не можем расшифровать, чтобы сравнить версию, потому что не знаем мастер-ключ здесь. Значит, синхронизатор должен иметь доступ к мастер-ключу или хранить версию в открытом виде.)
-			// Пока оставим так: если запись уже есть, пропускаем (не перезаписываем). Позже сделаем разрешение конфликтов с версиями.
-			_ = localData
-		}
-	}
-
-	// 4. Отправляем на сервер все локальные записи (пока все, без проверки версий)
 	for _, id := range localIDs {
 		data, err := st.Get(userID, id)
 		if err != nil {
 			continue
 		}
-		// Отправляем как новую запись с версией 0 (пока без версионирования)
-		entry := &syncpb.Entry{
-			Id:            id,
-			Type:          "password", // можно извлечь из метаданных
-			EncryptedData: data,
-			Version:       time.Now().Unix(), // временная версия
-			UpdatedAt:     time.Now().Unix(),
-		}
-		if err := cli.Push(context.Background(), []*syncpb.Entry{entry}); err != nil {
-			return err
+		ver := getVersion(data)
+		if ver > maxLocalVersion { // изменилась после последней синхронизации
+			entry := &syncpb.Entry{
+				Id:            id,
+				Type:          "password", // можно извлечь из метаданных
+				EncryptedData: data,
+				Version:       ver,
+				UpdatedAt:     time.Now().Unix(),
+			}
+			cli.Push(context.Background(), []*syncpb.Entry{entry})
 		}
 	}
-
 	return nil
 }
 
+func getVersion(data []byte) int64 {
+	var meta struct{ Version int64 }
+	json.Unmarshal(data, &meta) // предполагаем, что в данных есть поле version
+	return meta.Version
+}
+
+func getMaxLocalVersion(st *store.Store, userID string) int64 {
+	ids, _ := st.List(userID)
+	var max int64
+	for _, id := range ids {
+		data, _ := st.Get(userID, id)
+		v := getVersion(data)
+		if v > max {
+			max = v
+		}
+	}
+	return max
+}
+
+// NewClientWithConn creates a sync client using an existing gRPC connection.
 func NewClientWithConn(conn *grpc.ClientConn, token string) *Client {
 	return &Client{
 		conn:  conn,
