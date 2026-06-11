@@ -1,0 +1,55 @@
+syntax = "proto3";
+
+package gophkeeper.sync;
+
+option go_package = "github.com/eugegm01-dev/gophkeepston/api/proto/sync;syncpb";
+
+import "google/api/annotations.proto";
+import "protoc-gen-openapiv2/options/annotations.proto";
+
+option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_swagger) = {
+  info: {
+    title: "GophKeeper Sync API";
+    version: "1.0";
+    description: "Data synchronization service";
+  };
+  host: "localhost:50051";
+};
+
+service Sync {
+  rpc Push(PushRequest) returns (PushResponse) {
+    option (google.api.http) = { post: "/v1/sync/push"; body: "*"; };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Push encrypted entries";
+      description: "Upload encrypted entries to server.";
+      tags: "Sync";
+    };
+  }
+  rpc Pull(PullRequest) returns (PullResponse) {
+    option (google.api.http) = { post: "/v1/sync/pull"; body: "*"; };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Pull new entries";
+      description: "Download new entries from server.";
+      tags: "Sync";
+    };
+  }
+}
+
+message Entry {
+  string id = 1;
+  string type = 2;
+  bytes encrypted_data = 3;
+  bytes encrypted_meta = 4;
+  int64 version = 5;
+  int64 updated_at = 6;
+}
+message PushRequest {
+  repeated Entry entries = 1;
+}
+message PushResponse {}
+message PullRequest {
+  int64 since_version = 1;
+}
+message PullResponse {
+  repeated Entry entries = 1;
+}
