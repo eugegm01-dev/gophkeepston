@@ -16,8 +16,9 @@ import (
 
 type fakeSyncServer struct {
 	syncpb.UnimplementedSyncServer
-	pushed  []*syncpb.Entry
-	deleted chan *syncpb.DeleteRequest // добавь это поле
+	pushed       []*syncpb.Entry
+	deleted      chan *syncpb.DeleteRequest
+	pullResponse *syncpb.PullResponse
 }
 
 func (s *fakeSyncServer) Delete(ctx context.Context, req *syncpb.DeleteRequest) (*syncpb.DeleteResponse, error) {
@@ -33,6 +34,9 @@ func (s *fakeSyncServer) Push(ctx context.Context, req *syncpb.PushRequest) (*sy
 }
 
 func (s *fakeSyncServer) Pull(ctx context.Context, req *syncpb.PullRequest) (*syncpb.PullResponse, error) {
+	if s.pullResponse != nil {
+		return s.pullResponse, nil
+	}
 	return &syncpb.PullResponse{
 		Entries: []*syncpb.Entry{
 			{Id: "entry1", EncryptedData: []byte("data1"), Version: 1, UpdatedAt: time.Now().Unix()},
@@ -133,7 +137,7 @@ func TestFullSync(t *testing.T) {
 	}
 	defer func() { NewClientFunc = oldFunc }()
 
-	err = FullSync(st, userID, "test-token", "bufnet")
+	err = FullSync(context.Background(), st, userID, "test-token", "bufnet")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +182,7 @@ func TestFullSyncDelete(t *testing.T) {
 	}
 	defer func() { NewClientFunc = oldFunc }()
 
-	err = FullSync(st, userID, "token", "bufnet")
+	err = FullSync(context.Background(), st, userID, "test-token", "bufnet")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,5 +194,63 @@ func TestFullSyncDelete(t *testing.T) {
 		}
 	default:
 		t.Error("expected a delete request, got none")
+	}
+}
+func TestFullSyncWithVersions(t *testing.T) {
+	testDB := "test_sync_versions.db"
+	os.Remove(testDB)
+	st, err := store.NewStore(testDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(testDB)
+	defer st.Close()
+
+	userID := "bob"
+	// кладём локальную запись с версией 10
+	st.Put(userID, "entryX", []byte("local-data"))
+	st.PutVersion(userID, "entryX", 10)
+
+	// фейковый сервер возвращает ту же запись с версией 20 (более новая)
+	lis := bufconn.Listen(1024 * 1024)
+	srv := grpc.NewServer()
+	fake := &fakeSyncServer{
+		pullResponse: &syncpb.PullResponse{
+			Entries: []*syncpb.Entry{
+				{Id: "entryX", EncryptedData: []byte("server-data"), Version: 20, UpdatedAt: time.Now().Unix()},
+			},
+		},
+	}
+	syncpb.RegisterSyncServer(srv, fake)
+	go srv.Serve(lis)
+	defer srv.Stop()
+
+	conn, _ := grpc.DialContext(context.Background(), "bufnet",
+		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return lis.Dial() }),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	defer conn.Close()
+
+	oldFunc := NewClientFunc
+	NewClientFunc = func(addr, token string) (*Client, error) {
+		return NewClientWithConn(conn, token), nil
+	}
+	defer func() { NewClientFunc = oldFunc }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	err = FullSync(ctx, st, userID, "token", "bufnet")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// проверяем, что локальная запись обновилась (версия 20, данные серверные)
+	data, _ := st.Get(userID, "entryX")
+	if string(data) != "server-data" {
+		t.Errorf("expected server-data, got %s", data)
+	}
+	ver, _ := st.GetVersion(userID, "entryX")
+	if ver != 20 {
+		t.Errorf("expected version 20, got %d", ver)
 	}
 }

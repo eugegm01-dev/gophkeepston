@@ -3,11 +3,14 @@ package authclient
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
+	"os"
 
 	authpb "github.com/eugegm01-dev/gophkeepston/api/proto/auth"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/credentials"
 )
 
 // Client is a gRPC client for authentication operations.
@@ -16,9 +19,35 @@ type Client struct {
 	auth authpb.AuthClient
 }
 
+// #08: строим TLS-credentials.
+// Если задана переменная окружения TLS_CA_CERT — загружаем свой CA (для самоподписанных сертификатов).
+// Иначе используем системный пул доверенных сертификатов.
+func tlsCredentials() (credentials.TransportCredentials, error) {
+	caCertPath := os.Getenv("TLS_CA_CERT")
+	if caCertPath != "" {
+		caCert, err := os.ReadFile(caCertPath)
+		if err != nil {
+			return nil, fmt.Errorf("read CA cert: %w", err)
+		}
+		certPool := x509.NewCertPool()
+		if !certPool.AppendCertsFromPEM(caCert) {
+			return nil, fmt.Errorf("parse CA cert: invalid PEM")
+		}
+		return credentials.NewTLS(&tls.Config{RootCAs: certPool}), nil
+	}
+	// Системный пул — для продакшна с нормальными сертификатами
+	return credentials.NewTLS(&tls.Config{}), nil
+}
+
 // NewClient creates a new auth client connected to the given address.
 func NewClient(addr string) (*Client, error) {
-	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	// #08: заменяем insecure на TLS.
+	// Все токены и зашифрованные данные теперь защищены транспортным шифрованием.
+	creds, err := tlsCredentials()
+	if err != nil {
+		return nil, fmt.Errorf("tls credentials: %w", err)
+	}
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(creds))
 	if err != nil {
 		return nil, fmt.Errorf("grpc dial: %w", err)
 	}

@@ -1,19 +1,24 @@
 package storage
 
 import (
-	"database/sql"
+	"context"
 	"fmt"
 
-	_ "github.com/lib/pq"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func NewPostgresDB(connStr string) (*sql.DB, error) {
-	db, err := sql.Open("postgres", connStr)
+// NewPostgresDB создает пул соединений pgxpool
+func NewPostgresDB(ctx context.Context, connStr string) (*pgxpool.Pool, error) {
+	// pgxpool.New сам создает пул соединений
+	pool, err := pgxpool.New(ctx, connStr)
 	if err != nil {
-		return nil, fmt.Errorf("open db: %w", err)
+		return nil, fmt.Errorf("unable to create connection pool: %w", err)
 	}
-	if err := db.Ping(); err != nil {
-		return nil, fmt.Errorf("ping db: %w", err)
+
+	// Проверяем соединение
+	if err := pool.Ping(ctx); err != nil {
+		return nil, fmt.Errorf("unable to ping database: %w", err)
 	}
-	return db, nil
+
+	return pool, nil
 }

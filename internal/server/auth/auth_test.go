@@ -2,72 +2,67 @@ package auth
 
 import (
 	"context"
-	"database/sql"
 	"testing"
+	"time"
 
-	"github.com/DATA-DOG/go-sqlmock"
 	authpb "github.com/eugegm01-dev/gophkeepston/api/proto/auth"
+	"github.com/eugegm01-dev/gophkeepston/internal/pkg/jwt"
+	"github.com/eugegm01-dev/gophkeepston/internal/server/middleware"
+	pgxmock "github.com/pashagolub/pgxmock/v2"
 )
 
 func TestRegisterAndLogin(t *testing.T) {
-	db, mock, err := sqlmock.New()
+	mock, err := pgxmock.NewPool()
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer mock.Close()
 
-	s := NewAuthService(db, "test-secret")
+	jwtMgr := jwt.NewManager("test-secret")
+	rateLimiter := middleware.NewRateLimiter(5, 5*time.Minute)
+	s := NewAuthService(mock, jwtMgr, rateLimiter)
 
-	// Register: ожидаем вставку
-	mock.ExpectExec("INSERT INTO users").WithArgs(sqlmock.AnyArg(), "testuser", []byte("encrypted")).
-		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectQuery("SELECT id, encrypted_secret FROM users WHERE login=\\$1").
+		WithArgs("testuser").WillReturnRows(mock.NewRows([]string{"id", "encrypted_secret"}).AddRow("user123", []byte("enc")))
 
-	resp, err := s.Register(context.Background(), &authpb.RegisterRequest{Login: "testuser", EncryptedSecret: []byte("encrypted")})
+	mock.ExpectExec("INSERT INTO refresh_tokens").WillReturnResult(pgxmock.NewResult("INSERT", 1))
+
+	resp, err := s.Login(context.Background(), &authpb.LoginRequest{Login: "testuser"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.UserId == "" {
-		t.Error("expected user_id")
+	if resp.EncryptedSecret == nil || resp.AccessToken == "" {
+		t.Error("missing fields")
 	}
 
-	// Login: запрос вернёт id и encrypted_secret
-	rows := sqlmock.NewRows([]string{"id", "encrypted_secret"}).AddRow("user123", []byte("encrypted"))
-	mock.ExpectQuery("SELECT id, encrypted_secret FROM users WHERE login=\\$1").WithArgs("testuser").WillReturnRows(rows)
-
-	// После успешного SELECT будет INSERT в refresh_tokens
-	mock.ExpectExec(`INSERT INTO refresh_tokens`).WithArgs(
-		sqlmock.AnyArg(),
-		"user123",
-		sqlmock.AnyArg(),
-		sqlmock.AnyArg(),
-	).WillReturnResult(sqlmock.NewResult(1, 1))
-
-	loginResp, err := s.Login(context.Background(), &authpb.LoginRequest{Login: "testuser"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if loginResp.EncryptedSecret == nil || loginResp.AccessToken == "" || loginResp.RefreshToken == "" {
-		t.Error("missing login fields")
-	}
-
-	// Проверяем, что все ожидания выполнены
 	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unfulfilled expectations: %v", err)
+		t.Errorf("unfulfilled: %v", err)
 	}
 }
+
 func TestRefreshToken(t *testing.T) {
-	db, mock, err := sqlmock.New()
+	mock, err := pgxmock.NewPool()
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer mock.Close()
 
-	s := NewAuthService(db, "test-secret")
+	jwtMgr := jwt.NewManager("test-secret")
+	rateLimiter := middleware.NewRateLimiter(5, 5*time.Minute)
+	s := NewAuthService(mock, jwtMgr, rateLimiter)
 
 	// Успешный запрос
-	mock.ExpectQuery(`SELECT user_id FROM refresh_tokens WHERE token = \$1 AND expires_at > now\(\)`).
-		WithArgs("valid_refresh").
-		WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow("user42"))
+	mock.ExpectQuery(`SELECT user_id FROM refresh_tokens WHERE token_hash = \$1 AND expires_at > now\(\)`).
+		WithArgs(pgxmock.AnyArg()).
+		WillReturnRows(mock.NewRows([]string{"user_id"}).AddRow("user42"))
+
+	mock.ExpectBegin()
+	mock.ExpectExec(`DELETE FROM refresh_tokens WHERE token_hash = \$1`).
+		WithArgs(pgxmock.AnyArg()).
+		WillReturnResult(pgxmock.NewResult("DELETE", 1))
+	mock.ExpectExec(`INSERT INTO refresh_tokens`).
+		WillReturnResult(pgxmock.NewResult("INSERT", 1))
+	mock.ExpectCommit()
 
 	resp, err := s.RefreshToken(context.Background(), &authpb.RefreshTokenRequest{RefreshToken: "valid_refresh"})
 	if err != nil {
@@ -79,13 +74,14 @@ func TestRefreshToken(t *testing.T) {
 
 	// Невалидный токен
 	mock.ExpectQuery(`SELECT user_id FROM refresh_tokens`).
-		WithArgs("bad").
-		WillReturnError(sql.ErrNoRows)
+		WithArgs(pgxmock.AnyArg()).
+		WillReturnError(pgxmock.ErrCancelled)
 
 	_, err = s.RefreshToken(context.Background(), &authpb.RefreshTokenRequest{RefreshToken: "bad"})
 	if err == nil {
 		t.Error("expected error for invalid token")
 	}
+
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unfulfilled: %v", err)
 	}

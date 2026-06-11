@@ -4,4 +4,20 @@ session.enc
 
 # Бинарники
 gophkeeper
+tui
+server
 *.exe
+*.exetui
+coverage.out
+
+server
+tui
+gophkeeper
+*.exe
+coverage.out
+gophkeepston.db
+session.enc
+certs/*.key
+certs/*.crtserver
+tui
+gophkeeper

@@ -1,8 +1,9 @@
-// Package middleware provides gRPC interceptors for authentication.
 package middleware
 
 import (
 	"context"
+	"sync"
+	"time"
 
 	"github.com/eugegm01-dev/gophkeepston/internal/pkg/jwt"
 	"google.golang.org/grpc"
@@ -11,13 +12,45 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// RateLimiter защищает от брутфорса (требование безопасности)
+type RateLimiter struct {
+	mu       sync.Mutex
+	attempts map[string]*attempt
+	max      int
+	window   time.Duration
+}
 type contextKey string
 
-const userIDKey contextKey = "user_id"
+const UserIDKey contextKey = "userID"
 
-var UserIDKey = userIDKey
+type attempt struct {
+	count int
+	first time.Time
+}
 
-// UnaryAuthInterceptor returns a gRPC unary interceptor that validates JWT tokens.
+func NewRateLimiter(max int, window time.Duration) *RateLimiter {
+	return &RateLimiter{
+		attempts: make(map[string]*attempt),
+		max:      max,
+		window:   window,
+	}
+}
+
+func (rl *RateLimiter) Allow(key string) bool {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	now := time.Now()
+	a, ok := rl.attempts[key]
+	if !ok || now.Sub(a.first) > rl.window {
+		rl.attempts[key] = &attempt{count: 1, first: now}
+		return true
+	}
+	a.count++
+	return a.count <= rl.max
+}
+
+// UnaryAuthInterceptor добавляет rate-limit к auth-методам
 func UnaryAuthInterceptor(jwtManager *jwt.Manager) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		if info.FullMethod == "/gophkeeper.auth.Auth/Register" || info.FullMethod == "/gophkeeper.auth.Auth/Login" || info.FullMethod == "/gophkeeper.auth.Auth/RefreshToken" {
@@ -45,7 +78,7 @@ func UnaryAuthInterceptor(jwtManager *jwt.Manager) grpc.UnaryServerInterceptor {
 			return nil, status.Error(codes.Unauthenticated, "invalid token")
 		}
 
-		ctx = context.WithValue(ctx, userIDKey, userID)
+		ctx = context.WithValue(ctx, UserIDKey, userID)
 		return handler(ctx, req)
 	}
 }

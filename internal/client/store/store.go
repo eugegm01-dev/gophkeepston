@@ -32,6 +32,12 @@ func NewStore(path string) (*Store, error) {
 		}
 		return nil
 	})
+
+	if err != nil {
+		db.Close()
+		return nil, fmt.Errorf("create buckets: %w", err)
+	}
+
 	return &Store{db: db}, nil
 }
 

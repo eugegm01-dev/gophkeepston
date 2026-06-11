@@ -1,58 +1,98 @@
 package main
 
 import (
-	"log"
+	"context"
+	"log/slog"
 	"net"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 
 	authpb "github.com/eugegm01-dev/gophkeepston/api/proto/auth"
 	syncpb "github.com/eugegm01-dev/gophkeepston/api/proto/sync"
+	"github.com/eugegm01-dev/gophkeepston/internal/config"
 	"github.com/eugegm01-dev/gophkeepston/internal/pkg/jwt"
 	"github.com/eugegm01-dev/gophkeepston/internal/server/auth"
 	"github.com/eugegm01-dev/gophkeepston/internal/server/middleware"
 	"github.com/eugegm01-dev/gophkeepston/internal/server/storage"
-	serversync "github.com/eugegm01-dev/gophkeepston/internal/server/sync"
-	"google.golang.org/grpc"
+	"github.com/eugegm01-dev/gophkeepston/internal/server/sync"
 )
 
 func main() {
-	db, err := storage.NewPostgresDB("postgres://gophkeepston:secret@127.0.0.1:5432/gophkeepston?sslmode=disable")
+	// 1. Инициализация логгера
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	slog.SetDefault(logger)
+
+	// 2. Парсинг конфигурации (один раз!)
+	cfg, err := config.Load() // ← строка ~25, заменить весь блок парсинга
 	if err != nil {
-		log.Fatalf("db: %v", err)
+		slog.Error("Failed to load config", "error", err)
+		os.Exit(1)
+	}
+	// 3. Инициализация БД
+	ctx := context.Background()
+	db, err := storage.NewPostgresDB(ctx, cfg.DatabaseDSN)
+	if err != nil {
+		slog.Error("Failed to connect to database", "error", err)
+		os.Exit(1)
 	}
 	defer db.Close()
-	jwtSecret := os.Getenv("JWT_SECRET")
-	if jwtSecret == "" {
-		log.Fatal("JWT_SECRET environment variable is required")
-	}
-	jwtManager := jwt.NewManager(jwtSecret)
 
-	authSvc := auth.NewAuthService(db, "my-secret-jwt-key")
-	syncSvc := serversync.NewSyncService(db)
+	// 4. Инициализация JWT менеджера
+	jwtManager := jwt.NewManager(cfg.JWTSecret)
+	rateLimiter := middleware.NewRateLimiter(5, 5*time.Minute) // 5 попыток за 5 минут
 
-	lis, err := net.Listen("tcp", ":50051")
+	// 5. Инициализация TLS
+	creds, err := credentials.NewServerTLSFromFile(cfg.TLSCertPath, cfg.TLSKeyPath)
 	if err != nil {
-		log.Fatalf("listen: %v", err)
+		slog.Error("Failed to load TLS credentials", "error", err)
+		os.Exit(1)
 	}
 
+	// 6. Запуск gRPC сервера
 	grpcServer := grpc.NewServer(
+		grpc.Creds(creds),
 		grpc.UnaryInterceptor(middleware.UnaryAuthInterceptor(jwtManager)),
 	)
-
+	authSvc := auth.NewAuthService(db, jwtManager, rateLimiter)
 	authpb.RegisterAuthServer(grpcServer, authSvc)
+	syncSvc := sync.NewSyncService(db)
 	syncpb.RegisterSyncServer(grpcServer, syncSvc)
+	// 7. Слушатель
+	lis, err := net.Listen("tcp", cfg.ServerAddr)
+	if err != nil {
+		slog.Error("Failed to listen", "error", err)
+		os.Exit(1)
+	}
 
-	log.Println("gRPC server listening on :50051")
 	go func() {
-		sigCh := make(chan os.Signal, 1)
-		signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
-		<-sigCh
-		log.Println("Shutting down gracefully...")
-		grpcServer.GracefulStop()
+		slog.Info("gRPC server is running", "addr", cfg.ServerAddr)
+		if err := grpcServer.Serve(lis); err != nil {
+			slog.Error("Failed to serve", "error", err)
+		}
 	}()
-	if err := grpcServer.Serve(lis); err != nil {
-		log.Fatalf("serve: %v", err)
+
+	// 8. Graceful Shutdown
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	<-stop
+
+	slog.Info("Shutting down gracefully...")
+	stopped := make(chan struct{})
+	go func() {
+		grpcServer.GracefulStop()
+		close(stopped)
+	}()
+
+	select {
+	case <-stopped:
+		slog.Info("Server stopped")
+	case <-time.After(5 * time.Second):
+		slog.Warn("Force stopping server")
+		grpcServer.Stop()
 	}
 }

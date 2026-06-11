@@ -7,15 +7,22 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"errors"
+	"fmt"
 
-	"golang.org/x/crypto/argon2"
+	"golang.org/x/crypto/scrypt"
 )
 
 // DeriveKey derives a 32-byte encryption key from a password and salt using Argon2id.
 // ВАЖНО: в production соль должна быть случайной для каждого пользователя и храниться на сервере.
-func DeriveKey(password, salt []byte) []byte {
-	// 1 проход, 64 МБ памяти, 4 потока – достаточно для клиента
-	return argon2.IDKey(password, salt, 1, 64*1024, 4, 32)
+func DeriveKey(password, salt []byte) ([]byte, error) {
+	if len(password) < 8 {
+		return nil, fmt.Errorf("password too short: min 8 bytes")
+	}
+	key, err := scrypt.Key(password, salt, 32768, 8, 1, 32)
+	if err != nil {
+		return nil, fmt.Errorf("scrypt: %w", err)
+	}
+	return key, nil
 }
 
 // Encrypt encrypts plaintext with the given key using AES-256-GCM.
