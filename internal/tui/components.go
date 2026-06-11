@@ -109,18 +109,10 @@ type model struct {
 	height     int
 
 	viewingEntry item
-	viewingData  []byte
+	viewingData  PasswordEntry
 
-	addForm    *huh.Form
-	addingType string
-	adding     bool
-}
-
-type BinaryEntry struct {
-	Type     string `json:"type"` // "binary"
-	FileName string `json:"file_name"`
-	Data     []byte `json:"data"`
-	Meta     string `json:"meta"`
+	addForm *huh.Form
+	adding  bool
 }
 
 func NewModel(serverAddr string) *model {
@@ -173,28 +165,33 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.list.Title = ""
 		return m, nil
 
-	case []byte:
+	case PasswordEntry:
 		m.viewingData = msg
 		return m, nil
 
 	case tea.KeyMsg:
 		switch msg.Type {
 		case tea.KeyEscape:
+			// Esc на экране просмотра возвращает к списку
 			if m.screen == screenView {
 				m.screen = screenList
 				return m, nil
 			}
+			// Esc на списке записей – выход из программы
 			if m.screen == screenList {
 				return m, tea.Quit
 			}
+			// На экране аутентификации и добавления Esc обработается внутри
 		case tea.KeyCtrlC:
 			return m, tea.Quit
 		default:
 			switch msg.String() {
 			case "a":
 				if m.screen == screenList {
-					m.screen = screenChooseType
-					return m, nil
+					m.screen = screenAdd
+					m.adding = true
+					m.addForm = newAddForm()
+					return m, m.addForm.Init()
 				}
 			case "d":
 				if m.screen == screenList {
@@ -213,52 +210,6 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.viewingEntry = i
 						return m, viewEntryCmd(m, i.id)
 					}
-				}
-			case "p":
-				if m.screen == screenChooseType {
-					m.addingType = "password"
-					m.screen = screenAdd
-					m.adding = true
-					m.addForm = newAddForm()
-					return m, m.addForm.Init()
-				}
-			case "t":
-				if m.screen == screenChooseType {
-					m.addingType = "text"
-					m.screen = screenAdd
-					m.adding = true
-					m.addForm = newTextForm()
-					return m, m.addForm.Init()
-				}
-			case "c":
-				if m.screen == screenChooseType {
-					m.addingType = "card"
-					m.screen = screenAdd
-					m.adding = true
-					m.addForm = newCardForm()
-					return m, m.addForm.Init()
-				}
-			case "b":
-				if m.screen == screenChooseType {
-					m.addingType = "binary"
-					m.screen = screenAdd
-					m.adding = true
-					m.addForm = newBinaryForm()
-					return m, m.addForm.Init()
-				}
-			case "s":
-				if m.screen == screenView && m.viewingEntry.entryType == "binary" {
-					var e BinaryEntry
-					if err := json.Unmarshal(m.viewingData, &e); err == nil {
-						outPath := e.FileName
-						os.WriteFile(outPath, e.Data, 0644)
-						m.err = fmt.Errorf("file saved to %s", outPath)
-					}
-				}
-			case "esc":
-				if m.screen == screenChooseType {
-					m.screen = screenList
-					return m, nil
 				}
 			}
 		}
@@ -295,7 +246,7 @@ func (m *model) View() string {
 
 	switch m.screen {
 	case screenAuth:
-		return renderCastle() + "\n" + m.authScreen.View()
+		return m.authScreen.View()
 	case screenList:
 		header := headerStyle.Render(" Vault ")
 		help := m.helpView()
@@ -324,6 +275,7 @@ func (m *model) View() string {
 				Render(content)
 		}
 		return "Loading form..."
+<<<<<<< feature/docs-and-polish
 	case screenChooseType:
 		header := headerStyle.Render(" Choose Type ")
 		body := "p: password\nt: text\nc: card\nb: binary\n\nesc: back"
@@ -331,6 +283,8 @@ func (m *model) View() string {
 		return dungeonStyle.
 			Width(m.width - 4).Height(m.height - 4).
 			Render(content)
+=======
+>>>>>>> main
 	}
 	return ""
 }
@@ -340,6 +294,7 @@ func (m *model) helpView() string {
 }
 
 func (m *model) viewEntryView() string {
+<<<<<<< feature/docs-and-polish
 	if m.viewingData == nil {
 		return "No data"
 	}
@@ -383,6 +338,21 @@ func (m *model) viewEntryView() string {
 		content = "Unknown entry type"
 	}
 	return content
+=======
+	e := m.viewingData
+	otpCode := ""
+	if e.IsOTP && e.OTPSecret != "" {
+		code, err := totp.GenerateCode(e.OTPSecret, time.Now())
+		if err == nil {
+			otpCode = fmt.Sprintf("\nOTP: %s (valid %d seconds)", code, 30-time.Now().Second()%30)
+		}
+	}
+	return docStyle.Render(fmt.Sprintf(
+		"Site: %s\nLogin: %s\nPassword: %s\nMeta: %s%s\n\n%s",
+		e.Site, e.Login, e.Password, e.Meta, otpCode,
+		infoStyle.Render("esc: back"),
+	))
+>>>>>>> main
 }
 
 // ===== КОМАНДЫ =====
@@ -404,13 +374,11 @@ func loadEntriesCmd(m *model) tea.Cmd {
 			if err != nil {
 				continue
 			}
-
-			var typeCheck struct {
-				Type string `json:"type"`
-			}
-			if err := json.Unmarshal(plain, &typeCheck); err != nil {
+			var entry PasswordEntry
+			if err := json.Unmarshal(plain, &entry); err != nil {
 				continue
 			}
+<<<<<<< feature/final-fixes
 			ver, _ := m.store.GetVersion(m.session.UserID, id)
 			if ver == -1 {
 				continue
@@ -469,7 +437,18 @@ func loadEntriesCmd(m *model) tea.Cmd {
 					title:     entry.FileName,
 					desc:      fmt.Sprintf("%d bytes", len(entry.Data)),
 				})
+=======
+			title := entry.Site
+			if entry.IsOTP {
+				title += " (OTP)"
+>>>>>>> main
 			}
+			items = append(items, item{
+				id:        id,
+				entryType: "password",
+				title:     title,
+				desc:      entry.Login,
+			})
 		}
 		return entriesLoadedMsg{items}
 	}
@@ -485,7 +464,11 @@ func viewEntryCmd(m *model, id string) tea.Cmd {
 		if err != nil {
 			return errMsg{err}
 		}
-		return plain
+		var entry PasswordEntry
+		if err := json.Unmarshal(plain, &entry); err != nil {
+			return errMsg{err}
+		}
+		return entry
 	}
 }
 
@@ -495,6 +478,7 @@ func saveEntryCmd(m *model) tea.Cmd {
 		if form == nil {
 			return errMsg{fmt.Errorf("form is nil")}
 		}
+<<<<<<< feature/docs-and-polish
 		switch m.addingType {
 		case "password":
 			site := form.GetString("site")
@@ -610,7 +594,19 @@ func saveEntryCmd(m *model) tea.Cmd {
 			ver := time.Now().UnixNano()
 			_ = m.store.PutVersion(m.session.UserID, entryID, ver)
 
+=======
+		site := form.GetString("site")
+		login := form.GetString("login")
+		password := form.GetString("password")
+		meta := form.GetString("meta")
+		isOTP := form.GetBool("is_otp")
+		otpSecret := form.GetString("otp_secret")
+
+		if site == "" || login == "" || password == "" {
+			return errMsg{fmt.Errorf("site, login and password are required")}
+>>>>>>> main
 		}
+<<<<<<< feature/final-fixes
 		m.spinner, _ = m.spinner.Update(spinner.TickMsg{})
 		return tea.Batch(
 			func() tea.Msg {
@@ -622,6 +618,34 @@ func saveEntryCmd(m *model) tea.Cmd {
 				return loadEntriesCmd(m)
 			},
 		)
+=======
+		go func() {
+			_ = syncclient.FullSync(m.store, m.session.UserID, m.session.AccessToken, m.serverAddr)
+		}()
+
+		entry := PasswordEntry{
+			Site:      site,
+			Login:     login,
+			Password:  password,
+			Meta:      meta,
+			IsOTP:     isOTP,
+			OTPSecret: otpSecret,
+		}
+		plain, err := json.Marshal(entry)
+		if err != nil {
+			return errMsg{err}
+		}
+		ciphertext, err := crypto.Encrypt(plain, m.masterKey)
+		if err != nil {
+			return errMsg{err}
+		}
+		entryID := fmt.Sprintf("%s-%d", site, time.Now().UnixNano())
+		if err := m.store.Put(m.session.UserID, entryID, ciphertext); err != nil {
+			return errMsg{err}
+		}
+		m.screen = screenList
+		return loadEntriesCmd(m)()
+>>>>>>> main
 	}
 }
 
@@ -676,9 +700,11 @@ func (m authModel) Update(msg tea.Msg) (authModel, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.Type {
 		case tea.KeyEscape:
+			// Esc на экране выбора действия — выход из программы
 			if m.step == stepChooseAction {
 				return m, tea.Quit
 			}
+			// На шагах ввода — возврат к выбору действия
 			m.step = stepChooseAction
 			m.err = nil
 			return m, nil
@@ -829,20 +855,14 @@ func (m authModel) handleAuth() tea.Cmd {
 			return errMsg{err}
 		}
 
-		// Сохраняем сессию с токенами
 		sessionKey := crypto.DeriveKey([]byte(m.password), []byte("gophkeepston-session-salt"))
-		if err := session.Save(sessionKey, userID, masterKey, resp.AccessToken, resp.RefreshToken); err != nil {
+		if err := session.Save(sessionKey, userID, masterKey); err != nil {
 			return errMsg{err}
 		}
 
-		// Синхронизация с сервером
-		syncclient.FullSync(st, userID, resp.AccessToken, m.server)
-
 		sess := &session.Session{
-			UserID:       userID,
-			MasterKey:    masterKey,
-			AccessToken:  resp.AccessToken,
-			RefreshToken: resp.RefreshToken,
+			UserID:    userID,
+			MasterKey: masterKey,
 		}
 
 		return authSuccessMsg{
@@ -856,42 +876,12 @@ func (m authModel) handleAuth() tea.Cmd {
 // ===== ОСТАЛЬНОЕ =====
 
 type PasswordEntry struct {
-	Type      string `json:"type"`
 	Site      string `json:"site"`
 	Login     string `json:"login"`
 	Password  string `json:"password"`
 	Meta      string `json:"meta"`
 	IsOTP     bool   `json:"is_otp,omitempty"`
 	OTPSecret string `json:"otp_secret,omitempty"`
-}
-
-type TextEntry struct {
-	Type    string `json:"type"`
-	Title   string `json:"title"`
-	Content string `json:"content"`
-	Meta    string `json:"meta"`
-}
-
-type CardEntry struct {
-	Type   string `json:"type"`
-	Number string `json:"number"`
-	Expiry string `json:"expiry"`
-	CVV    string `json:"cvv"`
-	Holder string `json:"holder"`
-	Meta   string `json:"meta"`
-}
-
-func newTextForm() *huh.Form {
-	title := ""
-	content := ""
-	meta := ""
-	return huh.NewForm(
-		huh.NewGroup(
-			huh.NewInput().Key("title").Title("Title").Value(&title),
-			huh.NewInput().Key("content").Title("Content").Value(&content),
-			huh.NewInput().Key("meta").Title("Meta (optional)").Value(&meta),
-		),
-	).WithTheme(huh.ThemeBase())
 }
 
 func newAddForm() *huh.Form {
@@ -912,6 +902,7 @@ func newAddForm() *huh.Form {
 		),
 	).WithTheme(huh.ThemeBase())
 }
+<<<<<<< feature/docs-and-polish
 
 func newCardForm() *huh.Form {
 	number := ""
@@ -1017,3 +1008,5 @@ func renderCastle() string {
 
 	return lipgloss.NewStyle().MaxWidth(width).Render(scene)
 }
+=======
+>>>>>>> main
