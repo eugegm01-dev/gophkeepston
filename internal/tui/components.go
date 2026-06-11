@@ -89,18 +89,10 @@ type model struct {
 	height     int
 
 	viewingEntry item
-	viewingData  []byte
+	viewingData  PasswordEntry
 
-	addForm    *huh.Form
-	addingType string
-	adding     bool
-}
-
-type BinaryEntry struct {
-	Type     string `json:"type"` // "binary"
-	FileName string `json:"file_name"`
-	Data     []byte `json:"data"`
-	Meta     string `json:"meta"`
+	addForm *huh.Form
+	adding  bool
 }
 
 func NewModel(serverAddr string) *model {
@@ -153,28 +145,33 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.list.Title = "Entries"
 		return m, nil
 
-	case []byte:
+	case PasswordEntry:
 		m.viewingData = msg
 		return m, nil
 
 	case tea.KeyMsg:
 		switch msg.Type {
 		case tea.KeyEscape:
+			// Esc на экране просмотра возвращает к списку
 			if m.screen == screenView {
 				m.screen = screenList
 				return m, nil
 			}
+			// Esc на списке записей – выход из программы
 			if m.screen == screenList {
 				return m, tea.Quit
 			}
+			// На экране аутентификации и добавления Esc обработается внутри
 		case tea.KeyCtrlC:
 			return m, tea.Quit
 		default:
 			switch msg.String() {
 			case "a":
 				if m.screen == screenList {
-					m.screen = screenChooseType
-					return m, nil
+					m.screen = screenAdd
+					m.adding = true
+					m.addForm = newAddForm()
+					return m, m.addForm.Init()
 				}
 			case "d":
 				if m.screen == screenList {
@@ -193,52 +190,6 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.viewingEntry = i
 						return m, viewEntryCmd(m, i.id)
 					}
-				}
-			case "p":
-				if m.screen == screenChooseType {
-					m.addingType = "password"
-					m.screen = screenAdd
-					m.adding = true
-					m.addForm = newAddForm()
-					return m, m.addForm.Init()
-				}
-			case "t":
-				if m.screen == screenChooseType {
-					m.addingType = "text"
-					m.screen = screenAdd
-					m.adding = true
-					m.addForm = newTextForm()
-					return m, m.addForm.Init()
-				}
-			case "c":
-				if m.screen == screenChooseType {
-					m.addingType = "card"
-					m.screen = screenAdd
-					m.adding = true
-					m.addForm = newCardForm()
-					return m, m.addForm.Init()
-				}
-			case "b":
-				if m.screen == screenChooseType {
-					m.addingType = "binary"
-					m.screen = screenAdd
-					m.adding = true
-					m.addForm = newBinaryForm()
-					return m, m.addForm.Init()
-				}
-			case "s":
-				if m.screen == screenView && m.viewingEntry.entryType == "binary" {
-					var e BinaryEntry
-					if err := json.Unmarshal(m.viewingData, &e); err == nil {
-						outPath := e.FileName
-						os.WriteFile(outPath, e.Data, 0644)
-						m.err = fmt.Errorf("file saved to %s", outPath)
-					}
-				}
-			case "esc":
-				if m.screen == screenChooseType {
-					m.screen = screenList
-					return m, nil
 				}
 			}
 		}
@@ -274,7 +225,7 @@ func (m *model) View() string {
 	}
 	switch m.screen {
 	case screenAuth:
-		return renderCastle() + "\n" + m.authScreen.View()
+		return m.authScreen.View()
 	case screenList:
 		return docStyle.Render(m.list.View() + "\n" + m.helpView())
 	case screenView:
@@ -284,8 +235,6 @@ func (m *model) View() string {
 			return m.addForm.View()
 		}
 		return "Loading form..."
-	case screenChooseType:
-		return docStyle.Render("Select type:\n\np: password\nt: text\nc: card\nb: binary\n\nesc: back")
 	}
 	return ""
 }
@@ -295,53 +244,22 @@ func (m *model) helpView() string {
 }
 
 func (m *model) viewEntryView() string {
-	if m.viewingData == nil {
-		return "No data"
-	}
-	var typeCheck struct{ Type string }
-	if err := json.Unmarshal(m.viewingData, &typeCheck); err != nil {
-		return "Error parsing entry"
-	}
-	var content string
-	switch typeCheck.Type {
-	case "password":
-		var e PasswordEntry
-		if err := json.Unmarshal(m.viewingData, &e); err == nil {
-			otpCode := ""
-			if e.IsOTP && e.OTPSecret != "" {
-				code, err := totp.GenerateCode(e.OTPSecret, time.Now())
-				if err == nil {
-					otpCode = fmt.Sprintf("\nOTP: %s (valid %d seconds)", code, 30-time.Now().Second()%30)
-				}
-			}
-			content = fmt.Sprintf("Site: %s\nLogin: %s\nPassword: %s\nMeta: %s%s",
-				e.Site, e.Login, e.Password, e.Meta, otpCode)
+	e := m.viewingData
+	otpCode := ""
+	if e.IsOTP && e.OTPSecret != "" {
+		code, err := totp.GenerateCode(e.OTPSecret, time.Now())
+		if err == nil {
+			otpCode = fmt.Sprintf("\nOTP: %s (valid %d seconds)", code, 30-time.Now().Second()%30)
 		}
-	case "text":
-		var e TextEntry
-		if err := json.Unmarshal(m.viewingData, &e); err == nil {
-			content = fmt.Sprintf("Title: %s\nContent: %s\nMeta: %s", e.Title, e.Content, e.Meta)
-		}
-	case "binary":
-		var e BinaryEntry
-		if err := json.Unmarshal(m.viewingData, &e); err == nil {
-			content = fmt.Sprintf("File: %s\nSize: %d bytes\nMeta: %s",
-				e.FileName, len(e.Data), e.Meta)
-		}
-	default:
-		content = "Unknown entry type"
 	}
-	return docStyle.Render(content + "\n\n" + infoStyle.Render("esc: back"))
+	return docStyle.Render(fmt.Sprintf(
+		"Site: %s\nLogin: %s\nPassword: %s\nMeta: %s%s\n\n%s",
+		e.Site, e.Login, e.Password, e.Meta, otpCode,
+		infoStyle.Render("esc: back"),
+	))
 }
 
 // ===== КОМАНДЫ =====
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
 
 func loadEntriesCmd(m *model) tea.Cmd {
 	return func() tea.Msg {
@@ -359,68 +277,20 @@ func loadEntriesCmd(m *model) tea.Cmd {
 			if err != nil {
 				continue
 			}
-
-			var typeCheck struct {
-				Type string `json:"type"`
-			}
-			if err := json.Unmarshal(plain, &typeCheck); err != nil {
+			var entry PasswordEntry
+			if err := json.Unmarshal(plain, &entry); err != nil {
 				continue
 			}
-
-			switch typeCheck.Type {
-			case "password":
-				var entry PasswordEntry
-				if err := json.Unmarshal(plain, &entry); err != nil {
-					continue
-				}
-				title := entry.Site
-				if entry.IsOTP {
-					title += " (OTP)"
-				}
-				items = append(items, item{
-					id:        id,
-					entryType: "password",
-					title:     title,
-					desc:      entry.Login,
-				})
-			case "text":
-				var entry TextEntry
-				if err := json.Unmarshal(plain, &entry); err != nil {
-					continue
-				}
-				preview := entry.Content
-				if len(preview) > 50 {
-					preview = preview[:50] + "..."
-				}
-				items = append(items, item{
-					id:        id,
-					entryType: "text",
-					title:     entry.Title,
-					desc:      preview,
-				})
-			case "card":
-				var entry CardEntry
-				if err := json.Unmarshal(plain, &entry); err != nil {
-					continue
-				}
-				items = append(items, item{
-					id:        id,
-					entryType: "card",
-					title:     entry.Holder,
-					desc:      entry.Number + " " + entry.Expiry,
-				})
-			case "binary":
-				var entry BinaryEntry
-				if err := json.Unmarshal(plain, &entry); err != nil {
-					continue
-				}
-				items = append(items, item{
-					id:        id,
-					entryType: "binary",
-					title:     entry.FileName,
-					desc:      fmt.Sprintf("%d bytes", len(entry.Data)),
-				})
+			title := entry.Site
+			if entry.IsOTP {
+				title += " (OTP)"
 			}
+			items = append(items, item{
+				id:        id,
+				entryType: "password",
+				title:     title,
+				desc:      entry.Login,
+			})
 		}
 		return entriesLoadedMsg{items}
 	}
@@ -436,7 +306,11 @@ func viewEntryCmd(m *model, id string) tea.Cmd {
 		if err != nil {
 			return errMsg{err}
 		}
-		return plain
+		var entry PasswordEntry
+		if err := json.Unmarshal(plain, &entry); err != nil {
+			return errMsg{err}
+		}
+		return entry
 	}
 }
 
@@ -446,114 +320,37 @@ func saveEntryCmd(m *model) tea.Cmd {
 		if form == nil {
 			return errMsg{fmt.Errorf("form is nil")}
 		}
-		switch m.addingType {
-		case "password":
-			site := form.GetString("site")
-			login := form.GetString("login")
-			password := form.GetString("password")
-			meta := form.GetString("meta")
-			isOTP := form.GetBool("is_otp")
-			otpSecret := form.GetString("otp_secret")
+		site := form.GetString("site")
+		login := form.GetString("login")
+		password := form.GetString("password")
+		meta := form.GetString("meta")
+		isOTP := form.GetBool("is_otp")
+		otpSecret := form.GetString("otp_secret")
 
-			if site == "" || login == "" || password == "" {
-				return errMsg{fmt.Errorf("site, login and password are required")}
-			}
-			entry := PasswordEntry{
-				Type:      "password",
-				Site:      site,
-				Login:     login,
-				Password:  password,
-				Meta:      meta,
-				IsOTP:     isOTP,
-				OTPSecret: otpSecret,
-			}
-			plain, _ := json.Marshal(entry)
-			ciphertext, err := crypto.Encrypt(plain, m.masterKey)
-			if err != nil {
-				return errMsg{err}
-			}
-			entryID := fmt.Sprintf("%s-%d", site, time.Now().UnixNano())
-			if err := m.store.Put(m.session.UserID, entryID, ciphertext); err != nil {
-				return errMsg{err}
-			}
-		case "text":
-			title := form.GetString("title")
-			content := form.GetString("content")
-			meta := form.GetString("meta")
-
-			if title == "" || content == "" {
-				return errMsg{fmt.Errorf("title and content are required")}
-			}
-			entry := TextEntry{
-				Type:    "text",
-				Title:   title,
-				Content: content,
-				Meta:    meta,
-			}
-			plain, _ := json.Marshal(entry)
-			ciphertext, err := crypto.Encrypt(plain, m.masterKey)
-			if err != nil {
-				return errMsg{err}
-			}
-			entryID := fmt.Sprintf("text-%d", time.Now().UnixNano())
-			if err := m.store.Put(m.session.UserID, entryID, ciphertext); err != nil {
-				return errMsg{err}
-			}
-		case "card":
-			number := form.GetString("number")
-			expiry := form.GetString("expiry")
-			cvv := form.GetString("cvv")
-			holder := form.GetString("holder")
-			meta := form.GetString("meta")
-
-			if number == "" || expiry == "" || cvv == "" {
-				return errMsg{fmt.Errorf("number, expiry and cvv are required")}
-			}
-			entry := CardEntry{
-				Type:   "card",
-				Number: number,
-				Expiry: expiry,
-				CVV:    cvv,
-				Holder: holder,
-				Meta:   meta,
-			}
-			plain, _ := json.Marshal(entry)
-			ciphertext, err := crypto.Encrypt(plain, m.masterKey)
-			if err != nil {
-				return errMsg{err}
-			}
-			entryID := fmt.Sprintf("card-%d", time.Now().UnixNano())
-			if err := m.store.Put(m.session.UserID, entryID, ciphertext); err != nil {
-				return errMsg{err}
-			}
-		case "binary":
-			path := form.GetString("path")
-			meta := form.GetString("meta")
-			if path == "" {
-				return errMsg{fmt.Errorf("file path required")}
-			}
-			data, err := os.ReadFile(path)
-			if err != nil {
-				return errMsg{err}
-			}
-			fileName := filepath.Base(path)
-			entry := BinaryEntry{
-				Type:     "binary",
-				FileName: fileName,
-				Data:     data,
-				Meta:     meta,
-			}
-			plain, _ := json.Marshal(entry)
-			ciphertext, err := crypto.Encrypt(plain, m.masterKey)
-			if err != nil {
-				return errMsg{err}
-			}
-			entryID := fmt.Sprintf("binary-%d", time.Now().UnixNano())
-			if err := m.store.Put(m.session.UserID, entryID, ciphertext); err != nil {
-				return errMsg{err}
-			}
+		if site == "" || login == "" || password == "" {
+			return errMsg{fmt.Errorf("site, login and password are required")}
 		}
 
+		entry := PasswordEntry{
+			Site:      site,
+			Login:     login,
+			Password:  password,
+			Meta:      meta,
+			IsOTP:     isOTP,
+			OTPSecret: otpSecret,
+		}
+		plain, err := json.Marshal(entry)
+		if err != nil {
+			return errMsg{err}
+		}
+		ciphertext, err := crypto.Encrypt(plain, m.masterKey)
+		if err != nil {
+			return errMsg{err}
+		}
+		entryID := fmt.Sprintf("%s-%d", site, time.Now().UnixNano())
+		if err := m.store.Put(m.session.UserID, entryID, ciphertext); err != nil {
+			return errMsg{err}
+		}
 		m.screen = screenList
 		return loadEntriesCmd(m)()
 	}
@@ -610,9 +407,11 @@ func (m authModel) Update(msg tea.Msg) (authModel, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.Type {
 		case tea.KeyEscape:
+			// Esc на экране выбора действия — выход из программы
 			if m.step == stepChooseAction {
 				return m, tea.Quit
 			}
+			// На шагах ввода — возврат к выбору действия
 			m.step = stepChooseAction
 			m.err = nil
 			return m, nil
@@ -763,20 +562,14 @@ func (m authModel) handleAuth() tea.Cmd {
 			return errMsg{err}
 		}
 
-		// Сохраняем сессию с токенами
 		sessionKey := crypto.DeriveKey([]byte(m.password), []byte("gophkeepston-session-salt"))
-		if err := session.Save(sessionKey, userID, masterKey, resp.AccessToken, resp.RefreshToken); err != nil {
+		if err := session.Save(sessionKey, userID, masterKey); err != nil {
 			return errMsg{err}
 		}
 
-		// Синхронизация с сервером
-		syncclient.FullSync(st, userID, resp.AccessToken, m.server)
-
 		sess := &session.Session{
-			UserID:       userID,
-			MasterKey:    masterKey,
-			AccessToken:  resp.AccessToken,
-			RefreshToken: resp.RefreshToken,
+			UserID:    userID,
+			MasterKey: masterKey,
 		}
 
 		return authSuccessMsg{
@@ -790,42 +583,12 @@ func (m authModel) handleAuth() tea.Cmd {
 // ===== ОСТАЛЬНОЕ =====
 
 type PasswordEntry struct {
-	Type      string `json:"type"`
 	Site      string `json:"site"`
 	Login     string `json:"login"`
 	Password  string `json:"password"`
 	Meta      string `json:"meta"`
 	IsOTP     bool   `json:"is_otp,omitempty"`
 	OTPSecret string `json:"otp_secret,omitempty"`
-}
-
-type TextEntry struct {
-	Type    string `json:"type"`
-	Title   string `json:"title"`
-	Content string `json:"content"`
-	Meta    string `json:"meta"`
-}
-
-type CardEntry struct {
-	Type   string `json:"type"`
-	Number string `json:"number"`
-	Expiry string `json:"expiry"`
-	CVV    string `json:"cvv"`
-	Holder string `json:"holder"`
-	Meta   string `json:"meta"`
-}
-
-func newTextForm() *huh.Form {
-	title := ""
-	content := ""
-	meta := ""
-	return huh.NewForm(
-		huh.NewGroup(
-			huh.NewInput().Key("title").Title("Title").Value(&title),
-			huh.NewInput().Key("content").Title("Content").Value(&content),
-			huh.NewInput().Key("meta").Title("Meta (optional)").Value(&meta),
-		),
-	).WithTheme(huh.ThemeBase())
 }
 
 func newAddForm() *huh.Form {
@@ -845,99 +608,4 @@ func newAddForm() *huh.Form {
 			huh.NewInput().Title("OTP Secret (if OTP)").Value(&otpSecret),
 		),
 	).WithTheme(huh.ThemeBase())
-}
-
-func newCardForm() *huh.Form {
-	number := ""
-	expiry := ""
-	cvv := ""
-	holder := ""
-	meta := ""
-	return huh.NewForm(
-		huh.NewGroup(
-			huh.NewInput().
-				Key("number").
-				Title("Card number (16 digits)").
-				Value(&number).
-				Validate(func(s string) error {
-					if len(s) != 16 {
-						return fmt.Errorf("must be 16 digits")
-					}
-					for _, c := range s {
-						if c < '0' || c > '9' {
-							return fmt.Errorf("only digits allowed")
-						}
-					}
-					return nil
-				}),
-			huh.NewInput().
-				Key("expiry").
-				Title("Expiry (MM/YY)").
-				Value(&expiry).
-				Validate(func(s string) error {
-					if len(s) != 5 || s[2] != '/' {
-						return fmt.Errorf("format MM/YY")
-					}
-					// можно добавить проверку месяца и года
-					return nil
-				}),
-			huh.NewInput().
-				Key("cvv").
-				Title("CVV (3 digits)").
-				EchoMode(huh.EchoModePassword).
-				Value(&cvv).
-				Validate(func(s string) error {
-					if len(s) != 3 {
-						return fmt.Errorf("must be 3 digits")
-					}
-					for _, c := range s {
-						if c < '0' || c > '9' {
-							return fmt.Errorf("only digits")
-						}
-					}
-					return nil
-				}),
-			huh.NewInput().Key("holder").Title("Holder name").Value(&holder),
-			huh.NewInput().Key("meta").Title("Meta (optional)").Value(&meta),
-		),
-	).WithTheme(huh.ThemeBase())
-}
-func newBinaryForm() *huh.Form {
-	path := ""
-	meta := ""
-	return huh.NewForm(
-		huh.NewGroup(
-			huh.NewInput().Key("path").Title("File path").Value(&path),
-			huh.NewInput().Key("meta").Title("Meta (optional)").Value(&meta),
-		),
-	).WithTheme(huh.ThemeBase())
-}
-
-func renderCastle() string {
-	sky := lipgloss.NewStyle().Background(lipgloss.Color("#1E90FF"))   // синее небо
-	sun := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD700"))   // солнце
-	stone := lipgloss.NewStyle().Foreground(lipgloss.Color("#A0A0A0")) // камень замка
-	roof := lipgloss.NewStyle().Foreground(lipgloss.Color("#FF5555"))  // красная крыша
-	white := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")) // рыцарь
-	grass := lipgloss.NewStyle().Foreground(lipgloss.Color("#228B22")) // трава
-
-	// Пиксельный замок с рыцарем и солнцем
-	scene := sky.Render("                                          \n") +
-		sky.Render("              "+sun.Render(" \\ | / ")+"                \n") +
-		sky.Render("              "+sun.Render("-- O --")+"                \n") +
-		sky.Render("              "+sun.Render(" / | \\ ")+"                \n") +
-		sky.Render("                                          \n") +
-		stone.Render("        ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄        \n") +
-		stone.Render("      ██  ██            ██  ██      \n") +
-		stone.Render("      ██  ██  "+white.Render("■■■■■■")+"  ██  ██      \n") +
-		stone.Render("      ██  ██  "+white.Render("■■■■■■")+"  ██  ██      \n") +
-		stone.Render("      ██  ██            ██  ██      \n") +
-		stone.Render("   ▄▄▄██▄▄██▄▄▄▄▄▄▄▄▄▄██▄▄██▄▄▄   \n") +
-		stone.Render("   ██████████████████████████████   \n") +
-		stone.Render("   ███  ███  ██████████  ███  ███   \n") +
-		roof.Render("   ███  ███  ██████████  ███  ███   \n") +
-		roof.Render("   ███  ███  ██████████  ███  ███   \n") +
-		grass.Render("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n")
-
-	return lipgloss.NewStyle().MaxWidth(60).Render(scene)
 }

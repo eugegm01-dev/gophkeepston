@@ -1,9 +1,8 @@
 module github.com/eugegm01-dev/gophkeepston
-
+https://github.com/eugegm01-dev/gophkeepston/pull/4/conflict?name=go.mod&ancestor_oid=b80be9373e6532195eac26bcefe8a73bc4392ba5&base_oid=11eae05f4b054f96b23ff0ba90a0b1bcb43566b9&head_oid=536496d31a46998b41371d0f98b02c81c02eed68
 go 1.25.1
 
 require (
-	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/huh v1.0.0
