@@ -75,11 +75,17 @@ func (s *AuthService) RefreshToken(ctx context.Context, req *authpb.RefreshToken
 		return nil, status.Error(codes.Unauthenticated, "invalid or expired refresh token")
 	}
 
-	// Генерируем новый access-токен
-	access, err := s.jwtManager.GenerateAccessToken(userID)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "generate access: %v", err)
-	}
-
-	return &authpb.RefreshTokenResponse{AccessToken: access}, nil
+	// Генерируем новый access
+	access, _ := s.jwtManager.GenerateAccessToken(userID)
+	// Удаляем старый refresh
+	_, _ = s.db.Exec(`DELETE FROM refresh_tokens WHERE token = $1`, req.RefreshToken)
+	// Генерируем новый refresh
+	newRefresh, _ := s.jwtManager.GenerateRefreshToken(userID)
+	_, _ = s.db.Exec(`INSERT INTO refresh_tokens (id, user_id, token, expires_at) VALUES ($1, $2, $3, $4)`,
+		uuid.New().String(), userID, newRefresh, time.Now().Add(72*time.Hour))
+	// Возвращаем оба
+	return &authpb.RefreshTokenResponse{
+		AccessToken:  access,
+		RefreshToken: newRefresh,
+	}, nil
 }

@@ -273,6 +273,94 @@ func (x *PullResponse) GetEntries() []*Entry {
 	return nil
 }
 
+type DeleteRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	EntryId       string                 `protobuf:"bytes,1,opt,name=entry_id,json=entryId,proto3" json:"entry_id,omitempty"`
+	Version       int64                  `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteRequest) Reset() {
+	*x = DeleteRequest{}
+	mi := &file_sync_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteRequest) ProtoMessage() {}
+
+func (x *DeleteRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_sync_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteRequest.ProtoReflect.Descriptor instead.
+func (*DeleteRequest) Descriptor() ([]byte, []int) {
+	return file_sync_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *DeleteRequest) GetEntryId() string {
+	if x != nil {
+		return x.EntryId
+	}
+	return ""
+}
+
+func (x *DeleteRequest) GetVersion() int64 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
+type DeleteResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteResponse) Reset() {
+	*x = DeleteResponse{}
+	mi := &file_sync_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteResponse) ProtoMessage() {}
+
+func (x *DeleteResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_sync_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteResponse.ProtoReflect.Descriptor instead.
+func (*DeleteResponse) Descriptor() ([]byte, []int) {
+	return file_sync_proto_rawDescGZIP(), []int{6}
+}
+
 var File_sync_proto protoreflect.FileDescriptor
 
 const file_sync_proto_rawDesc = "" +
@@ -293,10 +381,15 @@ const file_sync_proto_rawDesc = "" +
 	"\vPullRequest\x12#\n" +
 	"\rsince_version\x18\x01 \x01(\x03R\fsinceVersion\"@\n" +
 	"\fPullResponse\x120\n" +
-	"\aentries\x18\x01 \x03(\v2\x16.gophkeeper.sync.EntryR\aentries2\x90\x01\n" +
+	"\aentries\x18\x01 \x03(\v2\x16.gophkeeper.sync.EntryR\aentries\"D\n" +
+	"\rDeleteRequest\x12\x19\n" +
+	"\bentry_id\x18\x01 \x01(\tR\aentryId\x12\x18\n" +
+	"\aversion\x18\x02 \x01(\x03R\aversion\"\x10\n" +
+	"\x0eDeleteResponse2\xdb\x01\n" +
 	"\x04Sync\x12C\n" +
 	"\x04Push\x12\x1c.gophkeeper.sync.PushRequest\x1a\x1d.gophkeeper.sync.PushResponse\x12C\n" +
-	"\x04Pull\x12\x1c.gophkeeper.sync.PullRequest\x1a\x1d.gophkeeper.sync.PullResponseB<Z:github.com/eugegm01-dev/gophkeepston/api/proto/sync;syncpbb\x06proto3"
+	"\x04Pull\x12\x1c.gophkeeper.sync.PullRequest\x1a\x1d.gophkeeper.sync.PullResponse\x12I\n" +
+	"\x06Delete\x12\x1e.gophkeeper.sync.DeleteRequest\x1a\x1f.gophkeeper.sync.DeleteResponseB<Z:github.com/eugegm01-dev/gophkeepston/api/proto/sync;syncpbb\x06proto3"
 
 var (
 	file_sync_proto_rawDescOnce sync.Once
@@ -310,23 +403,27 @@ func file_sync_proto_rawDescGZIP() []byte {
 	return file_sync_proto_rawDescData
 }
 
-var file_sync_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_sync_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_sync_proto_goTypes = []any{
-	(*Entry)(nil),        // 0: gophkeeper.sync.Entry
-	(*PushRequest)(nil),  // 1: gophkeeper.sync.PushRequest
-	(*PushResponse)(nil), // 2: gophkeeper.sync.PushResponse
-	(*PullRequest)(nil),  // 3: gophkeeper.sync.PullRequest
-	(*PullResponse)(nil), // 4: gophkeeper.sync.PullResponse
+	(*Entry)(nil),          // 0: gophkeeper.sync.Entry
+	(*PushRequest)(nil),    // 1: gophkeeper.sync.PushRequest
+	(*PushResponse)(nil),   // 2: gophkeeper.sync.PushResponse
+	(*PullRequest)(nil),    // 3: gophkeeper.sync.PullRequest
+	(*PullResponse)(nil),   // 4: gophkeeper.sync.PullResponse
+	(*DeleteRequest)(nil),  // 5: gophkeeper.sync.DeleteRequest
+	(*DeleteResponse)(nil), // 6: gophkeeper.sync.DeleteResponse
 }
 var file_sync_proto_depIdxs = []int32{
 	0, // 0: gophkeeper.sync.PushRequest.entries:type_name -> gophkeeper.sync.Entry
 	0, // 1: gophkeeper.sync.PullResponse.entries:type_name -> gophkeeper.sync.Entry
 	1, // 2: gophkeeper.sync.Sync.Push:input_type -> gophkeeper.sync.PushRequest
 	3, // 3: gophkeeper.sync.Sync.Pull:input_type -> gophkeeper.sync.PullRequest
-	2, // 4: gophkeeper.sync.Sync.Push:output_type -> gophkeeper.sync.PushResponse
-	4, // 5: gophkeeper.sync.Sync.Pull:output_type -> gophkeeper.sync.PullResponse
-	4, // [4:6] is the sub-list for method output_type
-	2, // [2:4] is the sub-list for method input_type
+	5, // 4: gophkeeper.sync.Sync.Delete:input_type -> gophkeeper.sync.DeleteRequest
+	2, // 5: gophkeeper.sync.Sync.Push:output_type -> gophkeeper.sync.PushResponse
+	4, // 6: gophkeeper.sync.Sync.Pull:output_type -> gophkeeper.sync.PullResponse
+	6, // 7: gophkeeper.sync.Sync.Delete:output_type -> gophkeeper.sync.DeleteResponse
+	5, // [5:8] is the sub-list for method output_type
+	2, // [2:5] is the sub-list for method input_type
 	2, // [2:2] is the sub-list for extension type_name
 	2, // [2:2] is the sub-list for extension extendee
 	0, // [0:2] is the sub-list for field type_name
@@ -343,7 +440,7 @@ func file_sync_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_sync_proto_rawDesc), len(file_sync_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   5,
+			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -33,6 +33,8 @@ type authSuccessMsg struct {
 	store     *store.Store
 }
 
+type syncCompletedMsg struct{}
+
 type errMsg struct{ err error }
 
 type entriesLoadedMsg struct {
@@ -194,11 +196,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "d":
 				if m.screen == screenList {
 					if i, ok := m.list.SelectedItem().(item); ok {
-						if err := m.store.Delete(m.session.UserID, i.id); err != nil {
-							m.err = err
-						} else {
-							return m, loadEntriesCmd(m)
-						}
+						_ = m.store.PutVersion(m.session.UserID, i.id, -1)
+						go func() {
+							_ = syncclient.FullSync(m.store, m.session.UserID, m.session.AccessToken, m.serverAddr)
+						}()
+						return m, loadEntriesCmd(m)
 					}
 				}
 			case "enter":
@@ -361,6 +363,7 @@ func loadEntriesCmd(m *model) tea.Cmd {
 		if err != nil {
 			return errMsg{err}
 		}
+
 		var items []list.Item
 		for _, id := range ids {
 			ciphertext, err := m.store.Get(m.session.UserID, id)
@@ -375,9 +378,70 @@ func loadEntriesCmd(m *model) tea.Cmd {
 			if err := json.Unmarshal(plain, &entry); err != nil {
 				continue
 			}
+<<<<<<< feature/final-fixes
+			ver, _ := m.store.GetVersion(m.session.UserID, id)
+			if ver == -1 {
+				continue
+			}
+
+			switch typeCheck.Type {
+			case "password":
+				var entry PasswordEntry
+				if err := json.Unmarshal(plain, &entry); err != nil {
+					continue
+				}
+				title := entry.Site
+				if entry.IsOTP {
+					title += " (OTP)"
+				}
+				items = append(items, item{
+					id:        id,
+					entryType: "password",
+					title:     title,
+					desc:      entry.Login,
+				})
+			case "text":
+				var entry TextEntry
+				if err := json.Unmarshal(plain, &entry); err != nil {
+					continue
+				}
+				preview := entry.Content
+				if len(preview) > 50 {
+					preview = preview[:50] + "..."
+				}
+				items = append(items, item{
+					id:        id,
+					entryType: "text",
+					title:     entry.Title,
+					desc:      preview,
+				})
+			case "card":
+				var entry CardEntry
+				if err := json.Unmarshal(plain, &entry); err != nil {
+					continue
+				}
+				items = append(items, item{
+					id:        id,
+					entryType: "card",
+					title:     entry.Holder,
+					desc:      entry.Number + " " + entry.Expiry,
+				})
+			case "binary":
+				var entry BinaryEntry
+				if err := json.Unmarshal(plain, &entry); err != nil {
+					continue
+				}
+				items = append(items, item{
+					id:        id,
+					entryType: "binary",
+					title:     entry.FileName,
+					desc:      fmt.Sprintf("%d bytes", len(entry.Data)),
+				})
+=======
 			title := entry.Site
 			if entry.IsOTP {
 				title += " (OTP)"
+>>>>>>> main
 			}
 			items = append(items, item{
 				id:        id,
@@ -445,6 +509,8 @@ func saveEntryCmd(m *model) tea.Cmd {
 			if err := m.store.Put(m.session.UserID, entryID, ciphertext); err != nil {
 				return errMsg{err}
 			}
+			ver := time.Now().UnixNano()
+			_ = m.store.PutVersion(m.session.UserID, entryID, ver)
 		case "text":
 			title := form.GetString("title")
 			content := form.GetString("content")
@@ -468,6 +534,8 @@ func saveEntryCmd(m *model) tea.Cmd {
 			if err := m.store.Put(m.session.UserID, entryID, ciphertext); err != nil {
 				return errMsg{err}
 			}
+			ver := time.Now().UnixNano()
+			_ = m.store.PutVersion(m.session.UserID, entryID, ver)
 		case "card":
 			number := form.GetString("number")
 			expiry := form.GetString("expiry")
@@ -495,6 +563,8 @@ func saveEntryCmd(m *model) tea.Cmd {
 			if err := m.store.Put(m.session.UserID, entryID, ciphertext); err != nil {
 				return errMsg{err}
 			}
+			ver := time.Now().UnixNano()
+			_ = m.store.PutVersion(m.session.UserID, entryID, ver)
 		case "binary":
 			path := form.GetString("path")
 			meta := form.GetString("meta")
@@ -521,6 +591,8 @@ func saveEntryCmd(m *model) tea.Cmd {
 			if err := m.store.Put(m.session.UserID, entryID, ciphertext); err != nil {
 				return errMsg{err}
 			}
+			ver := time.Now().UnixNano()
+			_ = m.store.PutVersion(m.session.UserID, entryID, ver)
 
 =======
 		site := form.GetString("site")
@@ -534,6 +606,19 @@ func saveEntryCmd(m *model) tea.Cmd {
 			return errMsg{fmt.Errorf("site, login and password are required")}
 >>>>>>> main
 		}
+<<<<<<< feature/final-fixes
+		m.spinner, _ = m.spinner.Update(spinner.TickMsg{})
+		return tea.Batch(
+			func() tea.Msg {
+				_ = syncclient.FullSync(m.store, m.session.UserID, m.session.AccessToken, m.serverAddr)
+				return syncCompletedMsg{}
+			},
+			func() tea.Msg {
+				m.screen = screenList
+				return loadEntriesCmd(m)
+			},
+		)
+=======
 		go func() {
 			_ = syncclient.FullSync(m.store, m.session.UserID, m.session.AccessToken, m.serverAddr)
 		}()
@@ -560,6 +645,7 @@ func saveEntryCmd(m *model) tea.Cmd {
 		}
 		m.screen = screenList
 		return loadEntriesCmd(m)()
+>>>>>>> main
 	}
 }
 

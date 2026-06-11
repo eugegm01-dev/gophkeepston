@@ -20,10 +20,11 @@ import (
 )
 
 var (
-	serverAddr string
-	localStore *store.Store
-	userID     string
-	masterKey  []byte
+	serverAddr  string
+	localStore  *store.Store
+	userID      string
+	masterKey   []byte
+	accessToken string
 )
 
 type PasswordEntry struct {
@@ -60,6 +61,8 @@ type BinaryEntry struct {
 
 func init() {
 	rootCmd.PersistentFlags().StringVar(&serverAddr, "server", "localhost:50051", "gRPC server address")
+	rootCmd.Version = "1.0.0"
+	rootCmd.SetVersionTemplate("Gophkeepston v{{.Version}}\n")
 }
 
 func requireSession(cmd *cobra.Command, args []string) error {
@@ -77,6 +80,7 @@ func requireSession(cmd *cobra.Command, args []string) error {
 	}
 	userID = s.UserID
 	masterKey = s.MasterKey
+	accessToken = s.AccessToken
 	localStore, err = store.NewStore("gophkeepston.db")
 	if err != nil {
 		return fmt.Errorf("open store: %w", err)
@@ -84,8 +88,8 @@ func requireSession(cmd *cobra.Command, args []string) error {
 	if err := s.EnsureFreshAccess(serverAddr); err != nil {
 		return fmt.Errorf("refresh session: %w", err)
 	}
-	// можно опционально синхронизироваться, но это замедлит команды
-	// syncclient.FullSync(localStore, s.UserID, s.AccessToken, serverAddr)
+	// синхронизация
+	syncclient.FullSync(localStore, s.UserID, s.AccessToken, serverAddr)
 	return nil
 }
 
@@ -218,7 +222,13 @@ var addCmd = &cobra.Command{
 			if err := localStore.Put(userID, entryID, ciphertext); err != nil {
 				return fmt.Errorf("store: %w", err)
 			}
+			ver := time.Now().UnixNano()
+			_ = localStore.PutVersion(userID, entryID, ver)
+			go func() {
+				_ = syncclient.FullSync(localStore, userID, accessToken, serverAddr)
+			}()
 			fmt.Println("Entry added:", entryID)
+
 		case "text":
 			fmt.Print("Title: ")
 			var title string
@@ -245,7 +255,13 @@ var addCmd = &cobra.Command{
 			if err := localStore.Put(userID, entryID, ciphertext); err != nil {
 				return fmt.Errorf("store: %w", err)
 			}
+			ver := time.Now().UnixNano()
+			_ = localStore.PutVersion(userID, entryID, ver)
+			go func() {
+				_ = syncclient.FullSync(localStore, userID, accessToken, serverAddr)
+			}()
 			fmt.Println("Text entry added:", entryID)
+
 		case "card":
 			fmt.Print("Card number: ")
 			var number string
@@ -280,7 +296,13 @@ var addCmd = &cobra.Command{
 			if err := localStore.Put(userID, entryID, ciphertext); err != nil {
 				return fmt.Errorf("store: %w", err)
 			}
+			ver := time.Now().UnixNano()
+			_ = localStore.PutVersion(userID, entryID, ver)
+			go func() {
+				_ = syncclient.FullSync(localStore, userID, accessToken, serverAddr)
+			}()
 			fmt.Println("Card entry added:", entryID)
+
 		case "binary":
 			fmt.Print("File path: ")
 			var path string
@@ -309,7 +331,13 @@ var addCmd = &cobra.Command{
 			if err := localStore.Put(userID, entryID, ciphertext); err != nil {
 				return fmt.Errorf("store: %w", err)
 			}
+			ver := time.Now().UnixNano()
+			_ = localStore.PutVersion(userID, entryID, ver)
+			go func() {
+				_ = syncclient.FullSync(localStore, userID, accessToken, serverAddr)
+			}()
 			fmt.Println("Binary entry added:", entryID)
+
 		default:
 			return fmt.Errorf("unsupported type: %s", typ)
 		}
@@ -376,8 +404,40 @@ var getCmd = &cobra.Command{
 	},
 }
 
+var listCmd = &cobra.Command{
+	Use:     "list",
+	Short:   "List all entry IDs",
+	PreRunE: requireSession,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		ids, err := localStore.List(userID)
+		if err != nil {
+			return err
+		}
+		for _, id := range ids {
+			fmt.Println(id)
+		}
+		return nil
+	},
+}
+
+var deleteCmd = &cobra.Command{
+	Use:     "delete [entryID]",
+	Short:   "Delete an entry",
+	Args:    cobra.ExactArgs(1),
+	PreRunE: requireSession,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		entryID := args[0]
+		_ = localStore.PutVersion(userID, entryID, -1)
+		go func() {
+			_ = syncclient.FullSync(localStore, userID, accessToken, serverAddr)
+		}()
+		fmt.Printf("Marked %s for deletion\n", entryID)
+		return nil
+	},
+}
+
 func main() {
-	rootCmd.AddCommand(registerCmd, loginCmd, addCmd, getCmd)
+	rootCmd.AddCommand(registerCmd, loginCmd, addCmd, getCmd, listCmd, deleteCmd)
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}

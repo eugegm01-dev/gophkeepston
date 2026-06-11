@@ -45,3 +45,42 @@ func TestStorePutGetListDelete(t *testing.T) {
 		t.Fatal("expected error after delete")
 	}
 }
+
+func TestVersions(t *testing.T) {
+	tmpFile := "test_versions.db"
+	defer os.Remove(tmpFile)
+
+	s, err := NewStore(tmpFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	user := "alice"
+	id := "entry1"
+	ver := int64(100)
+	if err := s.PutVersion(user, id, ver); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetVersion(user, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != ver {
+		t.Errorf("expected %d, got %d", ver, got)
+	}
+
+	max, err := s.GetMaxVersion(user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if max != ver {
+		t.Errorf("max version: expected %d, got %d", ver, max)
+	}
+
+	s.DeleteVersion(user, id)
+	_, err = s.GetVersion(user, id)
+	if err == nil {
+		t.Error("expected error after delete")
+	}
+}

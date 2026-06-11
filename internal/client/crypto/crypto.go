@@ -12,6 +12,7 @@ import (
 )
 
 // DeriveKey derives a 32-byte encryption key from a password and salt using Argon2id.
+// ВАЖНО: в production соль должна быть случайной для каждого пользователя и храниться на сервере.
 func DeriveKey(password, salt []byte) []byte {
 	// 1 проход, 64 МБ памяти, 4 потока – достаточно для клиента
 	return argon2.IDKey(password, salt, 1, 64*1024, 4, 32)

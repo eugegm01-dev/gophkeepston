@@ -11,6 +11,12 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+type contextKey string
+
+const userIDKey contextKey = "user_id"
+
+var UserIDKey = userIDKey
+
 // UnaryAuthInterceptor returns a gRPC unary interceptor that validates JWT tokens.
 func UnaryAuthInterceptor(jwtManager *jwt.Manager) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
@@ -39,7 +45,7 @@ func UnaryAuthInterceptor(jwtManager *jwt.Manager) grpc.UnaryServerInterceptor {
 			return nil, status.Error(codes.Unauthenticated, "invalid token")
 		}
 
-		ctx = context.WithValue(ctx, "user_id", userID)
+		ctx = context.WithValue(ctx, userIDKey, userID)
 		return handler(ctx, req)
 	}
 }
