@@ -82,6 +82,7 @@ type model struct {
 	width        int
 	height       int
 	viewingEntry item
+<<<<<<< feature/final-fixes-and-architecture
 	viewingData  []byte
 	addForm      *huh.Form
 	addingType   string
@@ -99,6 +100,13 @@ const (
 func (i item) Title() string       { return i.title }
 func (i item) Description() string { return i.desc }
 func (i item) FilterValue() string { return i.title }
+=======
+	viewingData  PasswordEntry
+
+	addForm *huh.Form
+	adding  bool
+}
+>>>>>>> main
 
 func NewModel(serverAddr string) *model {
 	s := spinner.New()
@@ -144,7 +152,12 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.list = list.New(items, list.NewDefaultDelegate(), m.width-8, m.height-14)
 		m.list.Title = ""
 		return m, nil
+<<<<<<< feature/final-fixes-and-architecture
 	case []byte:
+=======
+
+	case PasswordEntry:
+>>>>>>> main
 		m.viewingData = msg
 		return m, nil
 	case syncCompletedMsg:
@@ -153,21 +166,26 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.Type {
 		case tea.KeyEscape:
+			// Esc на экране просмотра возвращает к списку
 			if m.screen == screenView {
 				m.screen = screenList
 				return m, nil
 			}
+			// Esc на списке записей – выход из программы
 			if m.screen == screenList {
 				return m, tea.Quit
 			}
+			// На экране аутентификации и добавления Esc обработается внутри
 		case tea.KeyCtrlC:
 			return m, tea.Quit
 		default:
 			switch msg.String() {
 			case "a":
 				if m.screen == screenList {
-					m.screen = screenChooseType
-					return m, nil
+					m.screen = screenAdd
+					m.adding = true
+					m.addForm = newAddForm()
+					return m, m.addForm.Init()
 				}
 			case "d":
 				if m.screen == screenList {
@@ -184,6 +202,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, viewEntryCmd(m, i.id)
 					}
 				}
+<<<<<<< feature/final-fixes-and-architecture
 			case "p":
 				if m.screen == screenChooseType {
 					m.addingType = "password"
@@ -230,6 +249,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.screen = screenList
 					return m, nil
 				}
+=======
+>>>>>>> main
 			}
 		}
 	}
@@ -264,7 +285,7 @@ func (m *model) View() string {
 	}
 	switch m.screen {
 	case screenAuth:
-		return renderCastle() + "\n" + m.authScreen.View()
+		return m.authScreen.View()
 	case screenList:
 		header := headerStyle.Render(" Vault ")
 		help := m.helpView()
@@ -283,11 +304,20 @@ func (m *model) View() string {
 			return dungeonStyle.Width(m.width - 4).Height(m.height - 4).Render(content)
 		}
 		return "Loading form..."
+<<<<<<< feature/docs-and-polish
 	case screenChooseType:
 		header := headerStyle.Render(" Choose Type ")
 		body := "p: password\nt: text\nc: card\nb: binary\nesc: back"
 		content := lipgloss.JoinVertical(lipgloss.Left, header, body)
+<<<<<<< feature/final-fixes-and-architecture
 		return dungeonStyle.Width(m.width - 4).Height(m.height - 4).Render(content)
+=======
+		return dungeonStyle.
+			Width(m.width - 4).Height(m.height - 4).
+			Render(content)
+=======
+>>>>>>> main
+>>>>>>> main
 	}
 	return ""
 }
@@ -297,6 +327,7 @@ func (m *model) helpView() string {
 }
 
 func (m *model) viewEntryView() string {
+<<<<<<< feature/docs-and-polish
 	if m.viewingData == nil {
 		return "No data"
 	}
@@ -308,9 +339,28 @@ func (m *model) viewEntryView() string {
 	if err != nil {
 		return fmt.Sprintf("Render error: %v", err)
 	}
+<<<<<<< feature/final-fixes-and-architecture
 	content := strings.Join(view.Lines, "\n")
 	help := infoStyle.Render("\n" + strings.Join(mapToActions(view.Actions), " • "))
 	return content + "\n" + help
+=======
+	return content
+=======
+	e := m.viewingData
+	otpCode := ""
+	if e.IsOTP && e.OTPSecret != "" {
+		code, err := totp.GenerateCode(e.OTPSecret, time.Now())
+		if err == nil {
+			otpCode = fmt.Sprintf("\nOTP: %s (valid %d seconds)", code, 30-time.Now().Second()%30)
+		}
+	}
+	return docStyle.Render(fmt.Sprintf(
+		"Site: %s\nLogin: %s\nPassword: %s\nMeta: %s%s\n\n%s",
+		e.Site, e.Login, e.Password, e.Meta, otpCode,
+		infoStyle.Render("esc: back"),
+	))
+>>>>>>> main
+>>>>>>> main
 }
 
 func mapToActions(actions []presenter.Action) []string {
@@ -337,12 +387,18 @@ func loadEntriesCmd(m *model) tea.Cmd {
 			if err != nil {
 				continue
 			}
+<<<<<<< feature/final-fixes-and-architecture
 			var typeCheck struct {
 				Type string `json:"type"`
 			}
 			if err := json.Unmarshal(plain, &typeCheck); err != nil {
+=======
+			var entry PasswordEntry
+			if err := json.Unmarshal(plain, &entry); err != nil {
+>>>>>>> main
 				continue
 			}
+<<<<<<< feature/final-fixes
 			ver, _ := m.store.GetVersion(m.session.UserID, id)
 			if ver == -1 {
 				continue
@@ -379,8 +435,29 @@ func loadEntriesCmd(m *model) tea.Cmd {
 				if err := json.Unmarshal(plain, &e); err != nil {
 					continue
 				}
+<<<<<<< feature/final-fixes-and-architecture
 				items = append(items, item{id: id, entryType: "binary", title: e.FileName, desc: fmt.Sprintf("%d bytes", len(e.Data))})
 			}
+=======
+				items = append(items, item{
+					id:        id,
+					entryType: "binary",
+					title:     entry.FileName,
+					desc:      fmt.Sprintf("%d bytes", len(entry.Data)),
+				})
+=======
+			title := entry.Site
+			if entry.IsOTP {
+				title += " (OTP)"
+>>>>>>> main
+			}
+			items = append(items, item{
+				id:        id,
+				entryType: "password",
+				title:     title,
+				desc:      entry.Login,
+			})
+>>>>>>> main
 		}
 		return entriesLoadedMsg{items}
 	}
@@ -396,7 +473,11 @@ func viewEntryCmd(m *model, id string) tea.Cmd {
 		if err != nil {
 			return errMsg{err}
 		}
-		return plain
+		var entry PasswordEntry
+		if err := json.Unmarshal(plain, &entry); err != nil {
+			return errMsg{err}
+		}
+		return entry
 	}
 }
 
@@ -406,6 +487,7 @@ func saveEntryCmd(m *model) tea.Cmd {
 		if form == nil {
 			return errMsg{fmt.Errorf("form is nil")}
 		}
+<<<<<<< feature/docs-and-polish
 		switch m.addingType {
 		case "password":
 			site := form.GetString("site")
@@ -486,8 +568,28 @@ func saveEntryCmd(m *model) tea.Cmd {
 			if err := m.store.Put(m.session.UserID, entryID, ciphertext); err != nil {
 				return errMsg{err}
 			}
+<<<<<<< feature/final-fixes-and-architecture
 			_ = m.store.PutVersion(m.session.UserID, entryID, time.Now().UnixNano())
 		}
+=======
+			ver := time.Now().UnixNano()
+			_ = m.store.PutVersion(m.session.UserID, entryID, ver)
+
+=======
+		site := form.GetString("site")
+		login := form.GetString("login")
+		password := form.GetString("password")
+		meta := form.GetString("meta")
+		isOTP := form.GetBool("is_otp")
+		otpSecret := form.GetString("otp_secret")
+
+		if site == "" || login == "" || password == "" {
+			return errMsg{fmt.Errorf("site, login and password are required")}
+>>>>>>> main
+		}
+<<<<<<< feature/final-fixes
+		m.spinner, _ = m.spinner.Update(spinner.TickMsg{})
+>>>>>>> main
 		return tea.Batch(
 			func() tea.Msg {
 				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -496,6 +598,34 @@ func saveEntryCmd(m *model) tea.Cmd {
 				return syncCompletedMsg{}
 			},
 		)
+=======
+		go func() {
+			_ = syncclient.FullSync(m.store, m.session.UserID, m.session.AccessToken, m.serverAddr)
+		}()
+
+		entry := PasswordEntry{
+			Site:      site,
+			Login:     login,
+			Password:  password,
+			Meta:      meta,
+			IsOTP:     isOTP,
+			OTPSecret: otpSecret,
+		}
+		plain, err := json.Marshal(entry)
+		if err != nil {
+			return errMsg{err}
+		}
+		ciphertext, err := crypto.Encrypt(plain, m.masterKey)
+		if err != nil {
+			return errMsg{err}
+		}
+		entryID := fmt.Sprintf("%s-%d", site, time.Now().UnixNano())
+		if err := m.store.Put(m.session.UserID, entryID, ciphertext); err != nil {
+			return errMsg{err}
+		}
+		m.screen = screenList
+		return loadEntriesCmd(m)()
+>>>>>>> main
 	}
 }
 
@@ -560,9 +690,11 @@ func (m authModel) Update(msg tea.Msg) (authModel, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.Type {
 		case tea.KeyEscape:
+			// Esc на экране выбора действия — выход из программы
 			if m.step == stepChooseAction {
 				return m, tea.Quit
 			}
+			// На шагах ввода — возврат к выбору действия
 			m.step = stepChooseAction
 			m.err = nil
 			return m, nil
@@ -721,6 +853,7 @@ func (m authModel) handleAuth(serverAddr string) tea.Cmd {
 			return errMsg{err}
 		}
 
+<<<<<<< feature/final-fixes-and-architecture
 		// Сохраняем сессию с токенами
 		sessionKey, err := crypto.DeriveKey(append(secret, []byte(m.password)...), resp.Salt)
 		if err != nil {
@@ -737,11 +870,16 @@ func (m authModel) handleAuth(serverAddr string) tea.Cmd {
 		if err := syncclient.FullSync(syncCtx, st, userID, resp.AccessToken, serverAddr); err != nil {
 			slog.Warn("initial sync failed", "error", err)
 		}
+=======
+		sessionKey := crypto.DeriveKey([]byte(m.password), []byte("gophkeepston-session-salt"))
+		if err := session.Save(sessionKey, userID, masterKey); err != nil {
+			return errMsg{err}
+		}
+
+>>>>>>> main
 		sess := &session.Session{
-			UserID:       userID,
-			MasterKey:    masterKey,
-			AccessToken:  resp.AccessToken,
-			RefreshToken: resp.RefreshToken,
+			UserID:    userID,
+			MasterKey: masterKey,
 		}
 
 		return authSuccessMsg{
@@ -754,6 +892,7 @@ func (m authModel) handleAuth(serverAddr string) tea.Cmd {
 
 // ===== ОСТАЛЬНОЕ =====
 
+<<<<<<< feature/final-fixes-and-architecture
 func newTextForm() *huh.Form {
 	title := ""
 	content := ""
@@ -765,6 +904,15 @@ func newTextForm() *huh.Form {
 			huh.NewInput().Key("meta").Title("Meta (optional)").Value(&meta),
 		),
 	).WithTheme(huh.ThemeBase())
+=======
+type PasswordEntry struct {
+	Site      string `json:"site"`
+	Login     string `json:"login"`
+	Password  string `json:"password"`
+	Meta      string `json:"meta"`
+	IsOTP     bool   `json:"is_otp,omitempty"`
+	OTPSecret string `json:"otp_secret,omitempty"`
+>>>>>>> main
 }
 
 func newAddForm() *huh.Form {
@@ -785,6 +933,7 @@ func newAddForm() *huh.Form {
 		),
 	).WithTheme(huh.ThemeBase())
 }
+<<<<<<< feature/docs-and-polish
 
 func newCardForm() *huh.Form {
 	number := ""
@@ -890,3 +1039,5 @@ func renderCastle() string {
 
 	return lipgloss.NewStyle().MaxWidth(width).Render(scene)
 }
+=======
+>>>>>>> main
