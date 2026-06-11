@@ -1,0 +1,13 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    network_mode: host   # <-- контейнер использует сеть хоста напрямую
+    environment:
+      POSTGRES_USER: gophkeepston
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: gophkeepston
+    # ports больше не нужны при network_mode: host, удали или закомментируй
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+volumes:
+  pgdata:
