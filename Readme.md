@@ -80,7 +80,15 @@ go test ./...
 ```bash
 go test -coverprofile=coverage.out ./... && go tool cover -func=coverage.out | grep total
 ```
+## Переменые окужения
 
+DATABASE_DSN   	Подключение к PostgreSQL	         postgres://user:pass@localhost:5432/db?sslmode=disable
+JWT_SECRET	      Секрет для подписи токенов	         your-strong-secret
+TLS_CERT_PATH	   Путь к сертификату	               certs/server.crt
+TLS_KEY_PATH	   Путь к приватному ключу	            certs/server.key
+TLS_ENABLED	      Включить TLS	                     true (по умолчанию)
+SYNC_POLICY	      Стратегия разрешения конфликтов	   last-write-wins / server-authoritative / client-authoritative
+ 
 ## Безопасность
 - Соли для Argon2 в текущей версии фиксированы. В production соли должны быть уникальными для каждого пользователя.
 - JWT‑секрет задаётся через переменную окружения `JWT_SECRET`.
