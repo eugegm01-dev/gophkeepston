@@ -1,0 +1,183 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "GophKeeper Sync API",
+    "description": "Data synchronization service",
+    "version": "1.0"
+  },
+  "tags": [
+    {
+      "name": "Sync"
+    }
+  ],
+  "host": "localhost:50051",
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/v1/sync/pull": {
+      "post": {
+        "summary": "Pull new entries",
+        "description": "Download new entries from server.",
+        "operationId": "Sync_Pull",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/syncPullResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/syncPullRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Sync"
+        ]
+      }
+    },
+    "/v1/sync/push": {
+      "post": {
+        "summary": "Push encrypted entries",
+        "description": "Upload encrypted entries to server.",
+        "operationId": "Sync_Push",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/syncPushResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/syncPushRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Sync"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "@type": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": {}
+    },
+    "rpcStatus": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    },
+    "syncEntry": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "encryptedData": {
+          "type": "string",
+          "format": "byte"
+        },
+        "encryptedMeta": {
+          "type": "string",
+          "format": "byte"
+        },
+        "version": {
+          "type": "string",
+          "format": "int64"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
+    "syncPullRequest": {
+      "type": "object",
+      "properties": {
+        "sinceVersion": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
+    "syncPullResponse": {
+      "type": "object",
+      "properties": {
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/syncEntry"
+          }
+        }
+      }
+    },
+    "syncPushRequest": {
+      "type": "object",
+      "properties": {
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/syncEntry"
+          }
+        }
+      }
+    },
+    "syncPushResponse": {
+      "type": "object"
+    }
+  }
+}

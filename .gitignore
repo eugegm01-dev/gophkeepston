@@ -1,0 +1,16 @@
+# Локальная база и сессия (персональные данные)
+gophkeepston.db
+session.enc
+*.db
+
+# Бинарники
+gophkeeper
+tui
+server
+*.exe
+coverage.out
+client
+
+# Сертификаты (сгенерированные локально)
+certs/*.key
+certs/*.crt

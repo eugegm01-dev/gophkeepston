@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package gophkeeper.auth;
+
+option go_package = "github.com/eugegm01-dev/gophkeepston/api/proto/auth;authpb";
+
+service Auth {
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+  rpc Login(LoginRequest) returns (LoginResponse);
+  rpc RefreshToken(RefreshTokenRequest) returns (RefreshTokenResponse);
+}
+
+message RegisterRequest {
+  string login = 1;
+  bytes encrypted_secret = 2;
+}
+
+message RegisterResponse {
+  string user_id = 1;
+}
+
+message LoginRequest {
+  string login = 1;
+}
+
+message LoginResponse {
+  bytes encrypted_secret = 1;
+  string access_token = 2;
+  string refresh_token = 3;
+  bytes salt = 4;
+}
+
+message RefreshTokenRequest {
+  string refresh_token = 1;
+}
+
+message RefreshTokenResponse {
+  string access_token = 1;
+  string refresh_token = 2;
+}
