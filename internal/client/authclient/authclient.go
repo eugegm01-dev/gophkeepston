@@ -40,6 +40,10 @@ func (c *Client) Login(ctx context.Context, login string) (*authpb.LoginResponse
 	return c.auth.Login(ctx, &authpb.LoginRequest{Login: login})
 }
 
+func (c *Client) Refresh(ctx context.Context, refreshToken string) (*authpb.RefreshTokenResponse, error) {
+	return c.auth.RefreshToken(ctx, &authpb.RefreshTokenRequest{RefreshToken: refreshToken})
+}
+
 func (c *Client) Close() error {
 	return c.conn.Close()
 }

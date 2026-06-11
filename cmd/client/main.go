@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -15,6 +16,7 @@ import (
 	"github.com/eugegm01-dev/gophkeepston/internal/client/crypto"
 	"github.com/eugegm01-dev/gophkeepston/internal/client/session"
 	"github.com/eugegm01-dev/gophkeepston/internal/client/store"
+	syncclient "github.com/eugegm01-dev/gophkeepston/internal/client/sync"
 )
 
 var (
@@ -25,9 +27,34 @@ var (
 )
 
 type PasswordEntry struct {
-	Site     string `json:"site"`
-	Login    string `json:"login"`
-	Password string `json:"password"`
+	Type      string `json:"type"`
+	Site      string `json:"site"`
+	Login     string `json:"login"`
+	Password  string `json:"password"`
+	Meta      string `json:"meta"`
+	IsOTP     bool   `json:"is_otp,omitempty"`
+	OTPSecret string `json:"otp_secret,omitempty"`
+}
+
+type TextEntry struct {
+	Type    string `json:"type"`
+	Title   string `json:"title"`
+	Content string `json:"content"`
+	Meta    string `json:"meta"`
+}
+
+type CardEntry struct {
+	Type   string `json:"type"` // "card"
+	Number string `json:"number"`
+	Expiry string `json:"expiry"`
+	CVV    string `json:"cvv"`
+	Holder string `json:"holder"`
+	Meta   string `json:"meta"`
+}
+type BinaryEntry struct {
+	Type     string `json:"type"` // "binary"
+	FileName string `json:"file_name"`
+	Data     []byte `json:"data"`
 	Meta     string `json:"meta"`
 }
 
@@ -54,6 +81,11 @@ func requireSession(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("open store: %w", err)
 	}
+	if err := s.EnsureFreshAccess(serverAddr); err != nil {
+		return fmt.Errorf("refresh session: %w", err)
+	}
+	// можно опционально синхронизироваться, но это замедлит команды
+	// syncclient.FullSync(localStore, s.UserID, s.AccessToken, serverAddr)
 	return nil
 }
 
@@ -135,11 +167,14 @@ var loginCmd = &cobra.Command{
 			return fmt.Errorf("open store: %w", err)
 		}
 
-		// Сохраняем сессию для будущих команд
+		// Сохраняем сессию с токенами
 		sessionKey := crypto.DeriveKey(password, []byte("gophkeepston-session-salt"))
-		if err := session.Save(sessionKey, userID, masterKey); err != nil {
+		if err := session.Save(sessionKey, userID, masterKey, resp.AccessToken, resp.RefreshToken); err != nil {
 			return fmt.Errorf("save session: %w", err)
 		}
+
+		// Синхронизируем данные с сервером
+		syncclient.FullSync(localStore, userID, resp.AccessToken, serverAddr)
 
 		fmt.Println("Logged in successfully. Session saved.")
 		return nil
@@ -184,6 +219,97 @@ var addCmd = &cobra.Command{
 				return fmt.Errorf("store: %w", err)
 			}
 			fmt.Println("Entry added:", entryID)
+		case "text":
+			fmt.Print("Title: ")
+			var title string
+			fmt.Scanln(&title)
+			fmt.Print("Content: ")
+			var content string
+			fmt.Scanln(&content)
+			fmt.Print("Meta (optional): ")
+			var meta string
+			fmt.Scanln(&meta)
+
+			entry := TextEntry{
+				Type:    "text",
+				Title:   title,
+				Content: content,
+				Meta:    meta,
+			}
+			plain, _ := json.Marshal(entry)
+			ciphertext, err := crypto.Encrypt(plain, masterKey)
+			if err != nil {
+				return fmt.Errorf("encrypt: %w", err)
+			}
+			entryID := fmt.Sprintf("text-%d", time.Now().UnixNano())
+			if err := localStore.Put(userID, entryID, ciphertext); err != nil {
+				return fmt.Errorf("store: %w", err)
+			}
+			fmt.Println("Text entry added:", entryID)
+		case "card":
+			fmt.Print("Card number: ")
+			var number string
+			fmt.Scanln(&number)
+			fmt.Print("Expiry (MM/YY): ")
+			var expiry string
+			fmt.Scanln(&expiry)
+			fmt.Print("CVV: ")
+			var cvv string
+			fmt.Scanln(&cvv)
+			fmt.Print("Holder name: ")
+			var holder string
+			fmt.Scanln(&holder)
+			fmt.Print("Meta (optional): ")
+			var meta string
+			fmt.Scanln(&meta)
+
+			entry := CardEntry{
+				Type:   "card",
+				Number: number,
+				Expiry: expiry,
+				CVV:    cvv,
+				Holder: holder,
+				Meta:   meta,
+			}
+			plain, _ := json.Marshal(entry)
+			ciphertext, err := crypto.Encrypt(plain, masterKey)
+			if err != nil {
+				return fmt.Errorf("encrypt: %w", err)
+			}
+			entryID := fmt.Sprintf("card-%d", time.Now().UnixNano())
+			if err := localStore.Put(userID, entryID, ciphertext); err != nil {
+				return fmt.Errorf("store: %w", err)
+			}
+			fmt.Println("Card entry added:", entryID)
+		case "binary":
+			fmt.Print("File path: ")
+			var path string
+			fmt.Scanln(&path)
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return fmt.Errorf("read file: %w", err)
+			}
+			fileName := filepath.Base(path)
+			fmt.Print("Meta (optional): ")
+			var meta string
+			fmt.Scanln(&meta)
+
+			entry := BinaryEntry{
+				Type:     "binary",
+				FileName: fileName,
+				Data:     data,
+				Meta:     meta,
+			}
+			plain, _ := json.Marshal(entry)
+			ciphertext, err := crypto.Encrypt(plain, masterKey)
+			if err != nil {
+				return fmt.Errorf("encrypt: %w", err)
+			}
+			entryID := fmt.Sprintf("binary-%d", time.Now().UnixNano())
+			if err := localStore.Put(userID, entryID, ciphertext); err != nil {
+				return fmt.Errorf("store: %w", err)
+			}
+			fmt.Println("Binary entry added:", entryID)
 		default:
 			return fmt.Errorf("unsupported type: %s", typ)
 		}
@@ -206,12 +332,46 @@ var getCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("decrypt: %w", err)
 		}
-		var entry PasswordEntry
-		if err := json.Unmarshal(plain, &entry); err != nil {
-			return fmt.Errorf("unmarshal: %w", err)
+		// Сначала проверяем тип
+		var typeCheck struct{ Type string }
+		if err := json.Unmarshal(plain, &typeCheck); err != nil {
+			return fmt.Errorf("unmarshal type: %w", err)
 		}
-		fmt.Printf("Site: %s\nLogin: %s\nPassword: %s\nMeta: %s\n",
-			entry.Site, entry.Login, entry.Password, entry.Meta)
+		switch typeCheck.Type {
+		case "password":
+			var entry PasswordEntry
+			if err := json.Unmarshal(plain, &entry); err != nil {
+				return fmt.Errorf("unmarshal password: %w", err)
+			}
+			fmt.Printf("Site: %s\nLogin: %s\nPassword: %s\nMeta: %s\n",
+				entry.Site, entry.Login, entry.Password, entry.Meta)
+		case "text":
+			var entry TextEntry
+			if err := json.Unmarshal(plain, &entry); err != nil {
+				return fmt.Errorf("unmarshal text: %w", err)
+			}
+			fmt.Printf("Title: %s\nContent: %s\nMeta: %s\n",
+				entry.Title, entry.Content, entry.Meta)
+		case "card":
+			var entry CardEntry
+			if err := json.Unmarshal(plain, &entry); err != nil {
+				return fmt.Errorf("unmarshal card: %w", err)
+			}
+			fmt.Printf("Number: %s\nExpiry: %s\nCVV: %s\nHolder: %s\nMeta: %s\n",
+				entry.Number, entry.Expiry, entry.CVV, entry.Holder, entry.Meta)
+		case "binary":
+			var entry BinaryEntry
+			if err := json.Unmarshal(plain, &entry); err != nil {
+				return fmt.Errorf("unmarshal binary: %w", err)
+			}
+			outPath := entry.FileName + ".extracted"
+			if err := os.WriteFile(outPath, entry.Data, 0644); err != nil {
+				return fmt.Errorf("write file: %w", err)
+			}
+			fmt.Printf("Binary saved to %s\nMeta: %s\n", outPath, entry.Meta)
+		default:
+			fmt.Println("Unknown entry type")
+		}
 		return nil
 	},
 }

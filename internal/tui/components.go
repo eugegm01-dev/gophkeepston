@@ -5,6 +5,8 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -20,6 +22,7 @@ import (
 	"github.com/eugegm01-dev/gophkeepston/internal/client/crypto"
 	"github.com/eugegm01-dev/gophkeepston/internal/client/session"
 	"github.com/eugegm01-dev/gophkeepston/internal/client/store"
+	syncclient "github.com/eugegm01-dev/gophkeepston/internal/client/sync"
 )
 
 // Типы сообщений
@@ -57,6 +60,7 @@ const (
 	screenList
 	screenView
 	screenAdd
+	screenChooseType
 )
 
 type item struct {

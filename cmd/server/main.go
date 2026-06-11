@@ -6,8 +6,11 @@ import (
 
 	authpb "github.com/eugegm01-dev/gophkeepston/api/proto/auth"
 	syncpb "github.com/eugegm01-dev/gophkeepston/api/proto/sync"
+	"github.com/eugegm01-dev/gophkeepston/internal/pkg/jwt"
 	"github.com/eugegm01-dev/gophkeepston/internal/server/auth"
+	"github.com/eugegm01-dev/gophkeepston/internal/server/middleware"
 	"github.com/eugegm01-dev/gophkeepston/internal/server/storage"
+	serversync "github.com/eugegm01-dev/gophkeepston/internal/server/sync"
 	"google.golang.org/grpc"
 )
 
@@ -18,14 +21,20 @@ func main() {
 	}
 	defer db.Close()
 
+	jwtManager := jwt.NewManager("my-secret-jwt-key")
+
 	authSvc := auth.NewAuthService(db, "my-secret-jwt-key")
-	syncSvc := &syncpb.UnimplementedSyncServer{} // заглушка
+	syncSvc := serversync.NewSyncService(db)
 
 	lis, err := net.Listen("tcp", ":50051")
 	if err != nil {
 		log.Fatalf("listen: %v", err)
 	}
-	grpcServer := grpc.NewServer()
+
+	grpcServer := grpc.NewServer(
+		grpc.UnaryInterceptor(middleware.UnaryAuthInterceptor(jwtManager)),
+	)
+
 	authpb.RegisterAuthServer(grpcServer, authSvc)
 	syncpb.RegisterSyncServer(grpcServer, syncSvc)
 
